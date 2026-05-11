@@ -75,16 +75,29 @@ export class World {
 
   /// Loads world state from a snapshot.
   loadFromData(data: WorldData): void {
+    if (!data || !Array.isArray(data.entities)) {
+      throw new Error(`Invalid WorldData: expected an object with an 'entities' array. Received: ${JSON.stringify(data)}`);
+    }
+
     this.entities.clear();
     this.components.clear();
 
     for (const entityData of data.entities) {
+      if (!entityData || typeof entityData.id !== "number" || !Array.isArray(entityData.components)) {
+        console.warn(`Invalid entity data skipped. Received: ${JSON.stringify(entityData)}`);
+        continue;
+      }
+
       this.createEntity(entityData.id);
       for (const compData of entityData.components) {
-        this.addComponent(
-          entityData.id,
-          Component.fromData(compData)
-        );
+        try {
+          this.addComponent(
+            entityData.id,
+            Component.fromData(compData)
+          );
+        } catch (err) {
+          console.error(`Failed to load component for entity ${entityData.id}:`, err);
+        }
       }
     }
   }

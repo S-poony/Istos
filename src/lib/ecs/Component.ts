@@ -22,7 +22,11 @@ export class Component {
   }
 
   static fromData(data: ComponentData): Component {
-    return new Component(data.componentType, data.settings);
+    if (!data || typeof data.componentType !== "string") {
+      throw new Error(`Invalid ComponentData: missing or invalid componentType. Received: ${JSON.stringify(data)}`);
+    }
+    const settings = data.settings && typeof data.settings === "object" ? data.settings : {};
+    return new Component(data.componentType, settings);
   }
 }
 
