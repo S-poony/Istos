@@ -29,6 +29,10 @@
     /\.(mp4|webm|avi|mov|mkv)$/i.test(displayName)
   );
 
+  let isText = $derived(
+    /\.(txt|md|json|js|ts|csv|html|css|rs|yaml|yml|xml|log|ini|cfg)$/i.test(displayName)
+  );
+
   let mediaSrc = $derived.by(() => {
     if (targetPath) {
       try {
@@ -42,6 +46,25 @@
   });
 
   let hasError = $state(false);
+  let textContent = $state("");
+
+  $effect(() => {
+    if (isText && mediaSrc) {
+      fetch(mediaSrc)
+        .then(res => {
+          if (!res.ok) throw new Error("Failed to load text");
+          return res.text();
+        })
+        .then(text => {
+          textContent = text;
+        })
+        .catch(err => {
+          console.error(`Failed to load text for ${displayName}:`, err);
+          textContent = `Error loading text: ${err.message}`;
+          hasError = true;
+        });
+    }
+  });
 
   function handleError(e: Event) {
     console.error(`Failed to load media for ${displayName}. Path: ${targetPath}, Src: ${mediaSrc}. Check tauri.conf.json asset scopes or file validity.`);
@@ -71,6 +94,10 @@
       <track kind="captions">
       Your browser does not support the video element.
     </video>
+  {:else if isText}
+    <div class="text-content">
+      <pre>{textContent}</pre>
+    </div>
   {:else}
     <div class="file-placeholder">
       <span class="file-icon">📄</span>
@@ -133,5 +160,21 @@
     color: var(--text-secondary);
     text-align: center;
     word-break: break-all;
+  }
+  .text-content {
+    width: 100%;
+    height: 100%;
+    padding: 8px;
+    overflow: auto;
+    background-color: var(--bg-primary, #ffffff);
+    color: var(--text-primary, #000000);
+    font-size: 12px;
+  }
+  
+  .text-content pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: monospace;
   }
 </style>
