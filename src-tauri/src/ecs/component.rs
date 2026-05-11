@@ -59,6 +59,7 @@ impl ComponentRegistry {
 
 /// Settings for the renderFile component.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RenderFileSettings {
     /// Optional target path to render (None = render self).
     pub target_path: Option<String>,
@@ -119,6 +120,7 @@ impl Component for RenderFile {
 
 /// Settings for the grid component.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GridSettings {
     /// Number of columns in the grid.
     pub columns: u32,

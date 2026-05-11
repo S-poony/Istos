@@ -65,6 +65,18 @@ pub fn open_trove(
                 "Failed to create grid component".to_string()
             })?;
             w.add_component(entity, component);
+
+            // Add renderFile component so the folder is visible
+            let render_component = create_component("renderFile", serde_json::json!({
+                "targetPath": path.to_string_lossy(),
+                "scale": 1.0,
+                "position": {"x": 0, "y": 0}
+            })).ok_or_else(|| {
+                error!("Failed to create renderFile component for dir {}", path.display());
+                "Failed to create renderFile component".to_string()
+            })?;
+            w.add_component(entity, render_component);
+
             dir_count += 1;
         }
     }

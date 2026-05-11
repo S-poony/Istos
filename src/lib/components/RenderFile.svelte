@@ -1,5 +1,6 @@
 <script lang="ts">
   import { editMode } from "../stores/world";
+  import { convertFileSrc } from "@tauri-apps/api/core";
 
   interface Props {
     entityId: number;
@@ -27,6 +28,25 @@
   let isVideo = $derived(
     /\.(mp4|webm|avi|mov|mkv)$/i.test(displayName)
   );
+
+  let mediaSrc = $derived.by(() => {
+    if (targetPath) {
+      try {
+        return convertFileSrc(targetPath);
+      } catch (e) {
+        console.warn("Failed to convert file src:", e);
+        return targetPath;
+      }
+    }
+    return "";
+  });
+
+  let hasError = $state(false);
+
+  function handleError(e: Event) {
+    console.error(`Failed to load media for ${displayName}. Path: ${targetPath}, Src: ${mediaSrc}. Check tauri.conf.json asset scopes or file validity.`);
+    hasError = true;
+  }
 </script>
 
 <div
@@ -34,14 +54,21 @@
   style="transform: scale({scale}); left: {position.x}px; top: {position.y}px;"
   class:editable={$editMode}
 >
-  {#if isImage}
-    <img src={displayName} alt={displayName} draggable={false} />
+  {#if hasError}
+    <div class="file-placeholder error">
+      <span class="file-icon">⚠️</span>
+      <span class="file-name" style="color: #ef4444">Error loading media</span>
+      <span class="file-name" style="font-size: 10px;">{displayName}</span>
+    </div>
+  {:else if isImage}
+    <img src={mediaSrc} alt={displayName} draggable={false} onerror={handleError} />
   {:else if isAudio}
-    <audio controls src={displayName}>
+    <audio controls src={mediaSrc} onerror={handleError}>
       Your browser does not support the audio element.
     </audio>
   {:else if isVideo}
-    <video controls src={displayName}>
+    <video controls src={mediaSrc} onerror={handleError}>
+      <track kind="captions">
       Your browser does not support the video element.
     </video>
   {:else}

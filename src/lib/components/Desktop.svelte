@@ -34,6 +34,10 @@
         <!-- Perhaps add logic to show children, but for now empty -->
       </Grid>
     </div>
+  {:else}
+    <div style="display: none;">
+      {console.warn(`Entity ${entityId} has 'grid' component but is missing valid gridSettings.`)}
+    </div>
   {/if}
 {/each}
 
@@ -47,6 +51,10 @@
         scale={renderSettings.scale}
         position={renderSettings.position}
       />
+    </div>
+  {:else}
+    <div style="display: none;">
+      {console.warn(`Entity ${entityId} has 'renderFile' component but is missing valid renderSettings.`)}
     </div>
   {/if}
 {/each}

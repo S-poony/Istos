@@ -29,8 +29,18 @@
     gap: var(--grid-gap, 8px);
     padding: 8px;
     width: 100%;
-    min-height: 100%;
+    min-height: 100px; /* give it some height when empty */
     align-content: start;
+    border-radius: 8px;
+    border: 2px dashed transparent;
+    transition: border-color 0.2s, background-color 0.2s;
+  }
+
+  /* Show a subtle dashed border when in edit mode or when it might be empty */
+  :global(.editable) .grid-container,
+  .grid-container:empty {
+    border-color: var(--border, #ccc);
+    background-color: rgba(0, 0, 0, 0.02);
   }
 
   .grid-container.draggable {
