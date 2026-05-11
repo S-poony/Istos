@@ -30,4 +30,4 @@ export class Component {
   }
 }
 
-export type ComponentData = import("../types").ComponentData;
+export type { ComponentData };
