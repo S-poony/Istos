@@ -38,23 +38,17 @@ pub fn open_trove(
         let entity = w.create_entity();
 
         if path.is_file() {
-            // Check if image
-            if let Some(ext) = path.extension() {
-                if matches!(ext.to_str(), Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp")) {
-                    let component = create_component("renderFile", serde_json::json!({
-                        "targetPath": path.to_string_lossy(),
-                        "scale": 1.0,
-                        "position": {"x": 0, "y": 0}
-                    })).ok_or_else(|| {
-                        error!("Failed to create renderFile component for {}", path.display());
-                        "Failed to create renderFile component".to_string()
-                    })?;
-                    w.add_component(entity, component);
-                    file_count += 1;
-                } else {
-                    warn!("Skipping non-image file: {}", path.display());
-                }
-            }
+            // Add renderFile component for any file
+            let component = create_component("renderFile", serde_json::json!({
+                "targetPath": path.to_string_lossy(),
+                "scale": 1.0,
+                "position": {"x": 0, "y": 0}
+            })).ok_or_else(|| {
+                error!("Failed to create renderFile component for {}", path.display());
+                "Failed to create renderFile component".to_string()
+            })?;
+            w.add_component(entity, component);
+            file_count += 1;
         } else if path.is_dir() {
             // Add grid component
             let component = create_component("grid", serde_json::json!({
