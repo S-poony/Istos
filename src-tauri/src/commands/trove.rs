@@ -1,4 +1,5 @@
 use tauri::State;
+use log::{info, error, warn};
 
 use crate::db::DbState;
 use crate::ecs::{
@@ -12,14 +13,27 @@ pub fn open_trove(
     db: State<'_, DbState>,
     path: String,
 ) -> Result<(), String> {
-    let mut w = world.0.lock().map_err(|e| e.to_string())?;
+    info!("Opening trove at path: {}", path);
+    let mut w = world.0.lock().map_err(|e| {
+        error!("Failed to lock world: {}", e);
+        e.to_string()
+    })?;
     w.clear();
+    info!("World cleared");
 
     // Scan the folder
-    let entries = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
+    let entries = std::fs::read_dir(&path).map_err(|e| {
+        error!("Failed to read directory {}: {}", path, e);
+        format!("Failed to read directory: {}", e)
+    })?;
 
+    let mut file_count = 0;
+    let mut dir_count = 0;
     for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
+        let entry = entry.map_err(|e| {
+            error!("Failed to read entry: {}", e);
+            e.to_string()
+        })?;
         let path = entry.path();
         let entity = w.create_entity();
 
@@ -31,8 +45,14 @@ pub fn open_trove(
                         "targetPath": path.to_string_lossy(),
                         "scale": 1.0,
                         "position": {"x": 0, "y": 0}
-                    })).ok_or("Failed to create renderFile component")?;
+                    })).ok_or_else(|| {
+                        error!("Failed to create renderFile component for {}", path.display());
+                        "Failed to create renderFile component".to_string()
+                    })?;
                     w.add_component(entity, component);
+                    file_count += 1;
+                } else {
+                    warn!("Skipping non-image file: {}", path.display());
                 }
             }
         } else if path.is_dir() {
@@ -40,14 +60,26 @@ pub fn open_trove(
             let component = create_component("grid", serde_json::json!({
                 "columns": 3,
                 "gap": 10
-            })).ok_or("Failed to create grid component")?;
+            })).ok_or_else(|| {
+                error!("Failed to create grid component for dir {}", path.display());
+                "Failed to create grid component".to_string()
+            })?;
             w.add_component(entity, component);
+            dir_count += 1;
         }
     }
+    info!("Processed {} files and {} directories", file_count, dir_count);
 
     // Persist
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    w.save(&conn).map_err(|e| e.to_string())?;
+    let conn = db.0.lock().map_err(|e| {
+        error!("Failed to lock db: {}", e);
+        e.to_string()
+    })?;
+    w.save(&conn).map_err(|e| {
+        error!("Failed to save world: {}", e);
+        format!("Failed to save world: {}", e)
+    })?;
+    info!("World saved successfully");
 
     Ok(())
 }
@@ -134,4 +166,16 @@ pub fn update_component_settings(
     w.save(&conn).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_open_trove_placeholder() {
+        // Placeholder test
+        // TODO: Implement proper test with temp directory and mocked states
+        assert!(true);
+    }
 }

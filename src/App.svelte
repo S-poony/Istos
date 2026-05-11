@@ -9,21 +9,35 @@
 
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let message = $state<string | null>(null);
 
   async function openTrove() {
     try {
+      console.log("Opening trove dialog...");
       const selected = await open({
         directory: true,
         multiple: false,
       });
+      console.log("Selected path:", selected);
       if (selected && typeof selected === "string") {
+        console.log("Invoking open_trove with path:", selected);
         await invoke("open_trove", { path: selected });
+        console.log("open_trove invoked successfully");
         const state = await invoke("get_world_state");
+        console.log("World state retrieved:", state);
         worldStore.loadFromData(state as any);
+        console.log("World loaded into store");
+        message = "Trove opened successfully!";
+        setTimeout(() => message = null, 3000);
+      } else {
+        console.log("No folder selected");
+        message = "No folder selected.";
+        setTimeout(() => message = null, 3000);
       }
     } catch (e) {
       error = String(e);
       console.error("Failed to open trove:", e);
+      alert(`Failed to open trove: ${e}`);
     }
   }
 
@@ -48,6 +62,10 @@
     <p>Make sure the backend is running.</p>
   </div>
 {:else}
+  {#if message}
+    <div class="message">{message}</div>
+  {/if}
+  <div class="app-container">
   <div class="app-container">
     <header class="app-header">
       <h1>DeskShell</h1>
@@ -78,6 +96,17 @@
     height: 100%;
     gap: 8px;
     color: #ef4444;
+  }
+
+  .message {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background-color: #10b981;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    z-index: 1000;
   }
 
   .app-container {
