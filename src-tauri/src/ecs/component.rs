@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use super::EntityId;
 
 /// The type identifier for a component.
-pub type ComponentType = &'static str;
+// pub type ComponentType = String;
 
 /// Trait that all components must implement.
 pub trait Component: Any + Send + Sync {
     /// Returns the component type name.
-    fn component_type(&self) -> ComponentType;
+    fn component_type(&self) -> &str;
 
     /// Returns the component settings as a JSON Value.
     fn settings(&self) -> serde_json::Value;
@@ -30,7 +30,7 @@ pub type ComponentBox = Box<dyn Component>;
 #[derive(Default)]
 pub struct ComponentRegistry {
     // Stores component type names for lookup
-    types: Vec<ComponentType>,
+    types: Vec<&'static str>,
 }
 
 impl ComponentRegistry {
@@ -38,17 +38,17 @@ impl ComponentRegistry {
         Self::default()
     }
 
-    pub fn register(&mut self, component_type: ComponentType) {
+    pub fn register(&mut self, component_type: &'static str) {
         if !self.types.contains(&component_type) {
             self.types.push(component_type);
         }
     }
 
-    pub fn is_registered(&self, component_type: ComponentType) -> bool {
+    pub fn is_registered(&self, component_type: &'static str) -> bool {
         self.types.contains(&component_type)
     }
 
-    pub fn all_types(&self) -> &[ComponentType] {
+    pub fn all_types(&self) -> &[&'static str] {
         &self.types
     }
 }
@@ -84,7 +84,7 @@ pub struct RenderFile {
 }
 
 impl RenderFile {
-    pub const TYPE: ComponentType = "renderFile";
+    pub const TYPE: &str = "renderFile";
 
     pub fn new() -> Self {
         Self {
@@ -94,7 +94,7 @@ impl RenderFile {
 }
 
 impl Component for RenderFile {
-    fn component_type(&self) -> ComponentType {
+    fn component_type(&self) -> &str {
         Self::TYPE
     }
 
@@ -144,7 +144,7 @@ pub struct Grid {
 }
 
 impl Grid {
-    pub const TYPE: ComponentType = "grid";
+    pub const TYPE: &str = "grid";
 
     pub fn new() -> Self {
         Self {
@@ -154,7 +154,7 @@ impl Grid {
 }
 
 impl Component for Grid {
-    fn component_type(&self) -> ComponentType {
+    fn component_type(&self) -> &str {
         Self::TYPE
     }
 
@@ -190,8 +190,8 @@ pub fn create_component(
     settings: serde_json::Value,
 ) -> Option<ComponentBox> {
     let mut component: ComponentBox = match component_type {
-        RenderFile::TYPE => Box::new(RenderFile::new()),
-        Grid::TYPE => Box::new(Grid::new()),
+        "renderFile" => Box::new(RenderFile::new()),
+        "grid" => Box::new(Grid::new()),
         _ => return None,
     };
     component.update_settings(settings);

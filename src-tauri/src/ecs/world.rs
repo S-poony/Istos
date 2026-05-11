@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use super::component::{
-    self, create_component, Component, ComponentBox, ComponentRegistry, ComponentType,
+    self, create_component, Component, ComponentBox, ComponentRegistry,
 };
 use super::entity::{EntityId, EntityStore};
 use super::system::System;
@@ -87,7 +87,7 @@ impl World {
     }
 
     /// Removes all components of a given type from an entity.
-    pub fn remove_component(&mut self, entity: &EntityId, component_type: ComponentType) {
+    pub fn remove_component(&mut self, entity: &EntityId, component_type: &str) {
         if let Some(comps) = self.components.get_mut(entity) {
             comps.retain(|c| c.component_type() != component_type);
         }
@@ -102,7 +102,7 @@ impl World {
     }
 
     /// Queries entities that have a component of the given type.
-    pub fn query(&self, component_type: ComponentType) -> Vec<EntityId> {
+    pub fn query(&self, component_type: &str) -> Vec<EntityId> {
         self.components
             .iter()
             .filter(|(_, comps)| comps.iter().any(|c| c.component_type() == component_type))
