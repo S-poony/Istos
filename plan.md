@@ -2,8 +2,12 @@
 
 ## Overview
 
-DeskShell is a desktop shell that treats folders and files as an **Entity Component System (ECS)**.  
+DeskShell is a desktop shell that improves on the desktop concept by treating folders and files as an **Entity Component System (ECS)**, allowing special rendering attributes and custom layouts.  
 Built with **Svelte + TypeScript** (frontend) and **Rust** (backend via **Tauri v2**), with **SQLite** for persistence.
+
+The system treats all files as entities that can be parents of other entities, enabling complex media combinations (e.g., images arranged in time create diaporamas with music and subtitles). Changes to the entity architecture translate to the OS file system where possible.
+
+The goal is to allow users to create custom static websites directly from their computer files, with an **edit mode** for configuring entity architecture and component settings, and a **live mode** for navigating the resulting website.
 
 ---
 
@@ -64,6 +68,7 @@ deskshell/
 
 - An **Entity** is simply a unique `u64` ID (Rust) / `number` (TypeScript).
 - Entities map to filesystem paths (folders or files).
+- All files are treated as entities that can be parents of other entities.
 - The root trove folder is the root entity.
 
 ### 2.2 Component
@@ -78,6 +83,9 @@ deskshell/
 |-----------|----------|-------------|
 | `renderFile` | `{ targetPath?: string, scale: number, position: {x, y} }` | Renders a file (self by default, or another entity). |
 | `grid` | `{ columns: number, gap: number }` | Arranges sub-entities in a grid layout. |
+| `renderArchitecture` | `{ layout: string }` | Renders sub-entities as connected nodes (e.g., mind map style). |
+| `timeline` | `{ duration: number, loop: boolean }` | Orders sub-entities through time (e.g., for diaporamas or music). |
+| `pin` | `{ visible: boolean }` | Keeps entity visible during navigation (e.g., headers/footers). |
 
 ### 2.3 System
 
@@ -90,6 +98,8 @@ deskshell/
 |--------|-------|----------|
 | `GridLayoutSystem` | entities with `grid` component | Computes positions for child entities based on grid settings. |
 | `RenderSystem` | entities with `renderFile` component | Determines how to render each file (image, text, etc.). |
+| `TimelineSystem` | entities with `timeline` component | Manages time-based ordering and playback of sub-entities. |
+| `PinSystem` | entities with `pin` component | Ensures pinned entities remain visible during navigation. |
 
 ### 2.4 World
 
@@ -177,18 +187,28 @@ deskshell/
 
 ## 6. Questions / Open Items
 
-1. **Trove path**: Should the trove path be configurable at runtime (file picker) or set once in config?
-2. **File watching**: For the skeleton, should we implement file system watching (e.g., `notify` crate) or just load once?
-3. **Component settings UI**: For the skeleton, should we build a generic settings panel or hardcode the grid/renderFile settings?
-4. **Image rendering**: For `renderFile`, should we support only images initially, or also text files and folders?
+1. **Trove path**: Should the trove path be configurable at runtime (file picker) or set once in config? (Currently set in config)
+2. **File watching**: Not implemented yet. Should we add file system watching (e.g., `notify` crate) for live updates?
+3. **Component settings UI**: Currently hardcoded for grid/renderFile. Should we build a generic settings panel?
+4. **Image rendering**: Currently supports images only. Should we expand to text files, folders, and other types?
+5. **Navigation in live mode**: How should users navigate the entity hierarchy in live mode (e.g., clicking folders to drill down)?
 
 ---
 
-## 7. Next Steps
+## 7. Current Status & Next Steps
 
-Once this plan is approved, the implementation will proceed in **Act Mode** following the steps above. The result will be a runnable Tauri v2 app with:
-- A custom ECS core in both Rust and TypeScript
-- `renderFile` and `grid` components working
-- Edit mode / Live mode toggle
-- SQLite persistence
-- A basic desktop view rendering files in a grid
+The skeleton implementation is complete and builds successfully. The app includes:
+- ✅ Custom ECS core in Rust and TypeScript
+- ✅ `renderFile` and `grid` components implemented
+- ✅ Edit mode / Live mode toggle
+- ✅ SQLite persistence (basic)
+- ✅ Basic desktop view rendering files in a grid
+- ✅ Tauri v2 + Svelte setup
+
+**Next phases:**
+- Implement additional components: `renderArchitecture`, `timeline`, `pin`
+- Add file system watching for live updates
+- Build settings UI for component configuration
+- Expand rendering support (text files, folders, etc.)
+- Add navigation and interaction in live mode
+- Optimize performance for responsive rendering
