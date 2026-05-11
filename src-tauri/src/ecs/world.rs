@@ -150,6 +150,7 @@ pub struct EntitySnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ComponentSnapshot {
     pub component_type: String,
     pub settings: serde_json::Value,
