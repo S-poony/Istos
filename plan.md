@@ -197,27 +197,27 @@ deskshell/
 
 ## 7. Current Status & Next Steps
 
-The skeleton implementation **builds successfully** but is **not yet user-interactive**. The app runs but shows an empty world with no way for users to:
-- Select or configure a trove folder
-- Add components to entities
-- Edit component settings
-
-**What's implemented:**
+The skeleton implementation **builds successfully** and now includes **basic user interaction**:
 - ✅ Custom ECS core in Rust and TypeScript
-- ✅ `renderFile` and `grid` components (hardcoded in code, not user-addable)
-- ✅ Edit mode / Live mode toggle (UI exists but no functionality)
-- ✅ SQLite persistence (basic, but no data loaded)
-- ✅ Basic desktop view (renders hardcoded entities if any)
+- ✅ `renderFile` and `grid` components implemented
+- ✅ SQLite persistence (basic)
+- ✅ Basic desktop view rendering files in a grid
+- ✅ Tauri v2 + Svelte setup
+- ✅ **Open Trove button**: Users can select a folder via file dialog, which scans for images (adds `renderFile`) and folders (adds `grid`), populates the world, and updates the UI
+- ✅ Edit mode / Live mode toggle (UI exists but no functionality for adding components yet)
 
-**Immediate next steps to make it functional:**
-- Implement `open_trove` command to load a folder from config or file picker
-- Add UI buttons/menus to add components to entities
-- Build basic settings panels for component configuration
-- Populate the world with initial entities from the trove folder
+**What's still missing for full functionality:**
+- UI to add components to entities (buttons in edit mode)
+- Settings panels for component configuration
+- File system watching for live updates
+- Navigation in live mode
 
-**Future phases:**
-- Implement additional components: `renderArchitecture`, `timeline`, `pin`
-- Add file system watching for live updates
+**Next phases:**
+- Add UI controls for adding/removing components
+- Implement settings editing for components
+- Expand rendering support (text files, folders, etc.)
+- Add file system watching
+- Implement navigation and interaction in live mode
 - Expand rendering support (text files, folders, etc.)
 - Add navigation and interaction in live mode
 - Optimize performance for responsive rendering

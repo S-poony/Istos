@@ -93,6 +93,13 @@ impl World {
         }
     }
 
+    /// Clears all entities, components, and systems.
+    pub fn clear(&mut self) {
+        self.entities.clear();
+        self.components.clear();
+        self.systems.clear();
+    }
+
     /// Gets all components for an entity.
     pub fn get_components(&self, entity: &EntityId) -> Vec<&dyn Component> {
         self.components

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { open } from "@tauri-apps/plugin-dialog";
   import { worldStore, editMode } from "./lib/stores/world";
   import Desktop from "./lib/components/Desktop.svelte";
   import ModeToggle from "./lib/components/ModeToggle.svelte";
@@ -8,6 +9,23 @@
 
   let loading = $state(true);
   let error = $state<string | null>(null);
+
+  async function openTrove() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+      });
+      if (selected && typeof selected === "string") {
+        await invoke("open_trove", { path: selected });
+        const state = await invoke("get_world_state");
+        worldStore.loadFromData(state as any);
+      }
+    } catch (e) {
+      error = String(e);
+      console.error("Failed to open trove:", e);
+    }
+  }
 
   onMount(async () => {
     try {
@@ -33,6 +51,7 @@
   <div class="app-container">
     <header class="app-header">
       <h1>DeskShell</h1>
+      <button onclick={openTrove}>Open Trove</button>
       <ModeToggle />
     </header>
     <main class="app-main">

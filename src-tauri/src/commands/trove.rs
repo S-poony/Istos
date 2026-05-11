@@ -5,6 +5,53 @@ use crate::ecs::{
     self, component::create_component, EntityId, WorldSnapshot, WorldState,
 };
 
+/// Opens a trove folder and populates the world with entities.
+#[tauri::command]
+pub fn open_trove(
+    world: State<'_, WorldState>,
+    db: State<'_, DbState>,
+    path: String,
+) -> Result<(), String> {
+    let mut w = world.0.lock().map_err(|e| e.to_string())?;
+    w.clear();
+
+    // Scan the folder
+    let entries = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let entity = w.create_entity();
+
+        if path.is_file() {
+            // Check if image
+            if let Some(ext) = path.extension() {
+                if matches!(ext.to_str(), Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("webp")) {
+                    let component = create_component("renderFile", serde_json::json!({
+                        "targetPath": path.to_string_lossy(),
+                        "scale": 1.0,
+                        "position": {"x": 0, "y": 0}
+                    })).ok_or("Failed to create renderFile component")?;
+                    w.add_component(entity, component);
+                }
+            }
+        } else if path.is_dir() {
+            // Add grid component
+            let component = create_component("grid", serde_json::json!({
+                "columns": 3,
+                "gap": 10
+            })).ok_or("Failed to create grid component")?;
+            w.add_component(entity, component);
+        }
+    }
+
+    // Persist
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    w.save(&conn).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 /// Returns the full world state to the frontend.
 #[tauri::command]
 pub fn get_world_state(

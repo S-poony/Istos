@@ -31,6 +31,12 @@ impl EntityStore {
         id
     }
 
+    /// Clears all entities and resets the ID counter.
+    pub fn clear(&mut self) {
+        self.entities.clear();
+        self.next_id = 0;
+    }
+
     /// Creates an entity with a specific ID (used when loading from DB).
     pub fn create_with_id(&mut self, id: EntityId) {
         self.entities.insert(id);

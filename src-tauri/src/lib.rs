@@ -8,6 +8,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
             let db_path = app
@@ -32,6 +33,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::trove::open_trove,
             commands::trove::get_world_state,
             commands::trove::add_component,
             commands::trove::remove_component,
