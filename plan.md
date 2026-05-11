@@ -197,18 +197,27 @@ deskshell/
 
 ## 7. Current Status & Next Steps
 
-The skeleton implementation is complete and builds successfully. The app includes:
-- ✅ Custom ECS core in Rust and TypeScript
-- ✅ `renderFile` and `grid` components implemented
-- ✅ Edit mode / Live mode toggle
-- ✅ SQLite persistence (basic)
-- ✅ Basic desktop view rendering files in a grid
-- ✅ Tauri v2 + Svelte setup
+The skeleton implementation **builds successfully** but is **not yet user-interactive**. The app runs but shows an empty world with no way for users to:
+- Select or configure a trove folder
+- Add components to entities
+- Edit component settings
 
-**Next phases:**
+**What's implemented:**
+- ✅ Custom ECS core in Rust and TypeScript
+- ✅ `renderFile` and `grid` components (hardcoded in code, not user-addable)
+- ✅ Edit mode / Live mode toggle (UI exists but no functionality)
+- ✅ SQLite persistence (basic, but no data loaded)
+- ✅ Basic desktop view (renders hardcoded entities if any)
+
+**Immediate next steps to make it functional:**
+- Implement `open_trove` command to load a folder from config or file picker
+- Add UI buttons/menus to add components to entities
+- Build basic settings panels for component configuration
+- Populate the world with initial entities from the trove folder
+
+**Future phases:**
 - Implement additional components: `renderArchitecture`, `timeline`, `pin`
 - Add file system watching for live updates
-- Build settings UI for component configuration
 - Expand rendering support (text files, folders, etc.)
 - Add navigation and interaction in live mode
 - Optimize performance for responsive rendering
