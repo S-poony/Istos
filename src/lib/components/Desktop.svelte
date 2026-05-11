@@ -31,18 +31,22 @@
   {#if gridSettings}
     <div class="desktop-entity">
       <Grid {entityId} columns={gridSettings.columns} gap={gridSettings.gap} draggable={gridSettings.draggable}>
-        {#each $renderFileEntities as childId (childId)}
-          {@const renderSettings = getRenderFileSettings(childId)}
-          {#if renderSettings}
-            <RenderFile
-              entityId={childId}
-              targetPath={renderSettings.targetPath}
-              scale={renderSettings.scale}
-              position={renderSettings.position}
-            />
-          {/if}
-        {/each}
+        <!-- Perhaps add logic to show children, but for now empty -->
       </Grid>
+    </div>
+  {/if}
+{/each}
+
+{#each $renderFileEntities as entityId (entityId)}
+  {@const renderSettings = getRenderFileSettings(entityId)}
+  {#if renderSettings}
+    <div class="desktop-entity">
+      <RenderFile
+        entityId={entityId}
+        targetPath={renderSettings.targetPath}
+        scale={renderSettings.scale}
+        position={renderSettings.position}
+      />
     </div>
   {/if}
 {/each}

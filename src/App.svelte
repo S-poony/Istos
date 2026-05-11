@@ -66,7 +66,6 @@
     <div class="message">{message}</div>
   {/if}
   <div class="app-container">
-  <div class="app-container">
     <header class="app-header">
       <h1>DeskShell</h1>
       <button onclick={openTrove}>Open Trove</button>

@@ -171,11 +171,33 @@ pub fn update_component_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+    use rusqlite::Connection;
+    use tempdir::TempDir;
 
     #[test]
-    fn test_open_trove_placeholder() {
-        // Placeholder test
-        // TODO: Implement proper test with temp directory and mocked states
-        assert!(true);
+    fn test_open_trove_populates_world() {
+        let temp_dir = TempDir::new("test_trove").unwrap();
+        let file_path = temp_dir.path().join("test.png");
+        std::fs::File::create(&file_path).unwrap();
+
+        let world = WorldState(Mutex::new(crate::ecs::World::new()));
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_db(&std::path::Path::new(":memory:")).unwrap(); // Wait, no
+        // For in-memory, init_db with a dummy path? Wait, init_db opens the path.
+        // Better to use a temp file.
+        let db_path = temp_dir.path().join("test.db");
+        let conn = crate::db::init_db(&db_path).unwrap();
+        let db = DbState(Mutex::new(conn));
+
+        let path = temp_dir.path().to_string_lossy().to_string();
+        let result = open_trove(world, db, path);
+        assert!(result.is_ok());
+
+        let w = world.0.lock().unwrap();
+        assert!(!w.entities.is_empty());
+        // Check if renderFile component is added
+        let has_render = w.components.values().any(|comps| comps.iter().any(|c| c.component_type() == "renderFile"));
+        assert!(has_render);
     }
 }
