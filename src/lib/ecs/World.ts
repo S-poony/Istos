@@ -12,8 +12,11 @@ export class World {
   constructor() {}
 
   /// Creates a new entity.
-  createEntity(id: EntityId): Entity {
+  createEntity(id: EntityId, parentId?: EntityId): Entity {
     const entity = new Entity(id);
+    if (parentId !== undefined) {
+      entity.parentId = parentId;
+    }
     this.entities.set(id, entity);
     this.components.set(id, []);
     return entity;
@@ -61,6 +64,17 @@ export class World {
     return result;
   }
 
+  /// Returns children of a given entity.
+  getChildren(entityId: EntityId): EntityId[] {
+    const result: EntityId[] = [];
+    for (const [id, entity] of this.entities) {
+      if (entity.parentId === entityId) {
+        result.push(id);
+      }
+    }
+    return result;
+  }
+
   /// Registers a system.
   addSystem(system: System): void {
     this.systems.push(system);
@@ -88,7 +102,7 @@ export class World {
         continue;
       }
 
-      this.createEntity(entityData.id);
+      this.createEntity(entityData.id, entityData.parentId);
       for (const compData of entityData.components) {
         try {
           this.addComponent(
@@ -106,8 +120,10 @@ export class World {
   toData(): WorldData {
     const entities: EntityData[] = [];
     for (const [id, comps] of this.components) {
+      const entity = this.entities.get(id);
       entities.push({
         id,
+        parentId: entity?.parentId,
         components: comps.map((c) => c.toData()),
       });
     }

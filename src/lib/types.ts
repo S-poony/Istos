@@ -30,6 +30,7 @@ export interface ComponentData {
 /// An entity with its components.
 export interface EntityData {
   id: EntityId;
+  parentId?: EntityId;
   components: ComponentData[];
 }
 
