@@ -31,7 +31,17 @@
   {#if gridSettings}
     <div class="desktop-entity">
       <Grid {entityId} columns={gridSettings.columns} gap={gridSettings.gap} draggable={gridSettings.draggable}>
-        <!-- Perhaps add logic to show children, but for now empty -->
+        {#each $worldStore.getChildren(entityId) as childId (childId)}
+          {@const renderSettings = getRenderFileSettings(childId)}
+          {#if renderSettings}
+            <RenderFile
+              entityId={childId}
+              targetPath={renderSettings.targetPath}
+              scale={renderSettings.scale}
+              position={renderSettings.position}
+            />
+          {/if}
+        {/each}
       </Grid>
     </div>
   {:else}
@@ -43,7 +53,7 @@
 
 {#each $renderFileEntities as entityId (entityId)}
   {@const renderSettings = getRenderFileSettings(entityId)}
-  {#if renderSettings}
+  {#if renderSettings && $worldStore.entities.get(entityId)?.parentId === undefined}
     <div class="desktop-entity">
       <RenderFile
         entityId={entityId}
@@ -52,7 +62,7 @@
         position={renderSettings.position}
       />
     </div>
-  {:else}
+  {:else if !renderSettings}
     <div style="display: none;">
       {console.warn(`Entity ${entityId} has 'renderFile' component but is missing valid renderSettings.`)}
     </div>
