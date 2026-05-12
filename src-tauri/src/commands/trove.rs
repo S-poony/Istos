@@ -1,9 +1,9 @@
 use tauri::State;
-use log::{info, error, warn};
+use log::{info, error};
 
 use crate::db::DbState;
 use crate::ecs::{
-    self, component::create_component, EntityId, WorldSnapshot, WorldState,
+    component::create_component, EntityId, WorldSnapshot, WorldState,
 };
 
 /// Opens a trove folder and populates the world with entities.

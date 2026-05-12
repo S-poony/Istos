@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicedoc/tauri/refs/heads/dev/crates/tauri-config-schema/schema.json",
   "productName": "DeskShell",
   "version": "0.1.0",
-  "identifier": "com.deskshell.app",
+  "identifier": "com.deskshell.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",

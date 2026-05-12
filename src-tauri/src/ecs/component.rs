@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use std::collections::HashMap;
 
-use super::EntityId;
 
 /// The type identifier for a component.
 // pub type ComponentType = String;

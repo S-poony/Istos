@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::sync::Mutex;
 
-use crate::ecs::{EntityId, World};
+use crate::ecs::World;
 
 /// Tauri managed state for the database connection.
 pub struct DbState(pub Mutex<Connection>);
