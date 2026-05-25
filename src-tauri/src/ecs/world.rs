@@ -15,6 +15,8 @@ pub struct World {
     pub entities: EntityStore,
     /// Components attached to entities.
     pub components: HashMap<EntityId, Vec<ComponentBox>>,
+    /// Parent-child relationships.
+    pub parent_ids: HashMap<EntityId, EntityId>,
     /// Registered component types.
     pub registry: ComponentRegistry,
     /// Registered systems.
@@ -30,6 +32,7 @@ impl World {
         Self {
             entities: EntityStore::new(),
             components: HashMap::new(),
+            parent_ids: HashMap::new(),
             registry,
             systems: Vec::new(),
         }
@@ -41,8 +44,12 @@ impl World {
 
         // Load entities
         if let Ok(entities) = db::load_entities(conn) {
-            for id in entities {
-                world.entities.create_with_id(EntityId::new(id));
+            for (id, parent_id) in entities {
+                let eid = EntityId::new(id);
+                world.entities.create_with_id(eid);
+                if let Some(pid) = parent_id {
+                    world.parent_ids.insert(eid, EntityId::new(pid));
+                }
             }
         }
 
@@ -97,6 +104,7 @@ impl World {
     pub fn clear(&mut self) {
         self.entities.clear();
         self.components.clear();
+        self.parent_ids.clear();
         self.systems.clear();
     }
 
@@ -144,8 +152,10 @@ pub struct WorldSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EntitySnapshot {
     pub id: u64,
+    pub parent_id: Option<u64>,
     pub components: Vec<ComponentSnapshot>,
 }
 
@@ -170,8 +180,10 @@ impl From<&World> for WorldSnapshot {
                         settings: c.settings(),
                     })
                     .collect();
+                let parent_id = world.parent_ids.get(eid).map(|pid| pid.0);
                 EntitySnapshot {
                     id: eid.0,
+                    parent_id,
                     components,
                 }
             })

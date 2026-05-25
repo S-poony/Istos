@@ -6,29 +6,18 @@ use crate::ecs::{
     component::create_component, EntityId, WorldSnapshot, WorldState,
 };
 
-/// Opens a trove folder and populates the world with entities.
-#[tauri::command]
-pub fn open_trove(
-    world: State<'_, WorldState>,
-    db: State<'_, DbState>,
-    path: String,
+fn scan_directory(
+    w: &mut crate::ecs::World,
+    dir_path: &std::path::Path,
+    parent_id: Option<crate::ecs::EntityId>,
+    file_count: &mut usize,
+    dir_count: &mut usize,
 ) -> Result<(), String> {
-    info!("Opening trove at path: {}", path);
-    let mut w = world.0.lock().map_err(|e| {
-        error!("Failed to lock world: {}", e);
-        e.to_string()
-    })?;
-    w.clear();
-    info!("World cleared");
-
-    // Scan the folder
-    let entries = std::fs::read_dir(&path).map_err(|e| {
-        error!("Failed to read directory {}: {}", path, e);
+    let entries = std::fs::read_dir(dir_path).map_err(|e| {
+        error!("Failed to read directory {}: {}", dir_path.display(), e);
         format!("Failed to read directory: {}", e)
     })?;
 
-    let mut file_count = 0;
-    let mut dir_count = 0;
     for entry in entries {
         let entry = entry.map_err(|e| {
             error!("Failed to read entry: {}", e);
@@ -36,6 +25,9 @@ pub fn open_trove(
         })?;
         let path = entry.path();
         let entity = w.create_entity();
+        if let Some(pid) = parent_id {
+            w.parent_ids.insert(entity, pid);
+        }
 
         if path.is_file() {
             // Add renderFile component for any file
@@ -48,7 +40,7 @@ pub fn open_trove(
                 "Failed to create renderFile component".to_string()
             })?;
             w.add_component(entity, component);
-            file_count += 1;
+            *file_count += 1;
         } else if path.is_dir() {
             // Add grid component
             let component = create_component("grid", serde_json::json!({
@@ -70,24 +62,56 @@ pub fn open_trove(
                 "Failed to create renderFile component".to_string()
             })?;
             w.add_component(entity, render_component);
+            *dir_count += 1;
 
-            dir_count += 1;
+            // Recurse
+            scan_directory(w, &path, Some(entity), file_count, dir_count)?;
         }
     }
+    Ok(())
+}
+
+pub fn open_trove_impl(
+    w: &mut crate::ecs::World,
+    conn: &rusqlite::Connection,
+    path: &str,
+) -> Result<(), String> {
+    w.clear();
+    info!("World cleared");
+
+    let mut file_count = 0;
+    let mut dir_count = 0;
+    scan_directory(w, std::path::Path::new(path), None, &mut file_count, &mut dir_count)?;
+
     info!("Processed {} files and {} directories", file_count, dir_count);
 
     // Persist
-    let conn = db.0.lock().map_err(|e| {
-        error!("Failed to lock db: {}", e);
-        e.to_string()
-    })?;
-    w.save(&conn).map_err(|e| {
+    w.save(conn).map_err(|e| {
         error!("Failed to save world: {}", e);
         format!("Failed to save world: {}", e)
     })?;
     info!("World saved successfully");
 
     Ok(())
+}
+
+/// Opens a trove folder and populates the world with entities.
+#[tauri::command]
+pub fn open_trove(
+    world: State<'_, WorldState>,
+    db: State<'_, DbState>,
+    path: String,
+) -> Result<(), String> {
+    info!("Opening trove at path: {}", path);
+    let mut w = world.0.lock().map_err(|e| {
+        error!("Failed to lock world: {}", e);
+        e.to_string()
+    })?;
+    let conn = db.0.lock().map_err(|e| {
+        error!("Failed to lock db: {}", e);
+        e.to_string()
+    })?;
+    open_trove_impl(&mut w, &conn, &path)
 }
 
 /// Returns the full world state to the frontend.
@@ -177,8 +201,6 @@ pub fn update_component_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-    use rusqlite::Connection;
     use tempdir::TempDir;
 
     #[test]
@@ -187,23 +209,72 @@ mod tests {
         let file_path = temp_dir.path().join("test.png");
         std::fs::File::create(&file_path).unwrap();
 
-        let world = WorldState(Mutex::new(crate::ecs::World::new()));
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::init_db(&std::path::Path::new(":memory:")).unwrap(); // Wait, no
-        // For in-memory, init_db with a dummy path? Wait, init_db opens the path.
-        // Better to use a temp file.
-        let db_path = temp_dir.path().join("test.db");
+        let mut world = crate::ecs::World::new();
+        // Place database outside temp_dir so it is not scanned as an entity
+        let db_path = temp_dir.path().parent().unwrap().join("test_populates.db");
         let conn = crate::db::init_db(&db_path).unwrap();
-        let db = DbState(Mutex::new(conn));
 
         let path = temp_dir.path().to_string_lossy().to_string();
-        let result = open_trove(world, db, path);
+        let result = open_trove_impl(&mut world, &conn, &path);
         assert!(result.is_ok());
 
-        let w = world.0.lock().unwrap();
-        assert!(!w.entities.is_empty());
+        assert!(!world.entities.is_empty());
         // Check if renderFile component is added
-        let has_render = w.components.values().any(|comps| comps.iter().any(|c| c.component_type() == "renderFile"));
+        let has_render = world.components.values().any(|comps| comps.iter().any(|c| c.component_type() == "renderFile"));
         assert!(has_render);
+    }
+
+    #[test]
+    fn test_open_trove_recursive_hierarchy() {
+        let temp_dir = TempDir::new("test_trove_recursive").unwrap();
+        
+        // Create root file
+        let root_file = temp_dir.path().join("root_file.txt");
+        std::fs::File::create(&root_file).unwrap();
+
+        // Create subfolder
+        let sub_dir = temp_dir.path().join("sub_folder");
+        std::fs::create_dir(&sub_dir).unwrap();
+
+        // Create nested file in subfolder
+        let nested_file = sub_dir.join("nested_file.txt");
+        std::fs::File::create(&nested_file).unwrap();
+
+        let mut world = crate::ecs::World::new();
+        // Place database outside temp_dir so it is not scanned as an entity
+        let db_path = temp_dir.path().parent().unwrap().join("test_recursive.db");
+        let conn = crate::db::init_db(&db_path).unwrap();
+
+        let path = temp_dir.path().to_string_lossy().to_string();
+        let result = open_trove_impl(&mut world, &conn, &path);
+        assert!(result.is_ok());
+
+        // Assertions:
+        // Check that we created 3 entities (root_file, sub_folder, nested_file)
+        assert_eq!(world.entities.len(), 3);
+
+        // Find the sub_folder entity
+        let sub_folder_id = world.components.iter().find(|(_, comps)| {
+            comps.iter().any(|c| {
+                c.component_type() == "grid"
+            })
+        }).map(|(id, _)| *id).expect("Subfolder grid entity not found");
+
+        // Find the nested_file entity
+        let nested_file_id = world.components.iter().find(|(_, comps)| {
+            comps.iter().any(|c| {
+                if c.component_type() == "renderFile" {
+                    if let serde_json::Value::Object(map) = c.settings() {
+                        if let Some(serde_json::Value::String(path)) = map.get("targetPath") {
+                            return path.contains("nested_file.txt");
+                        }
+                    }
+                }
+                false
+            })
+        }).map(|(id, _)| *id).expect("Nested file entity not found");
+
+        // Verify parent-child relationship in World
+        assert_eq!(world.parent_ids.get(&nested_file_id), Some(&sub_folder_id));
     }
 }

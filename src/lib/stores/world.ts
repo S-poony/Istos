@@ -1,6 +1,6 @@
 import { writable, derived } from "svelte/store";
 import { World } from "../ecs/World";
-import type { WorldData } from "../types";
+import type { WorldData, EntityId } from "../types";
 
 /// The reactive world store.
 function createWorldStore() {
@@ -9,6 +9,8 @@ function createWorldStore() {
 
   return {
     subscribe,
+    set,
+    update,
 
     /// Load world state from backend data.
     loadFromData(data: WorldData) {
@@ -24,6 +26,17 @@ function createWorldStore() {
 }
 
 export const worldStore = createWorldStore();
+
+/// Derived store: entities that have no parentId.
+export const rootEntities = derived(worldStore, ($world) => {
+  const roots: EntityId[] = [];
+  for (const [id, entity] of $world.entities) {
+    if (entity.parentId === undefined) {
+      roots.push(id);
+    }
+  }
+  return roots;
+});
 
 /// Derived store: entities that have a grid component.
 export const gridEntities = derived(worldStore, ($world) =>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { editMode } from "../stores/world";
+  import { editMode, worldStore } from "../stores/world";
   import { convertFileSrc } from "@tauri-apps/api/core";
 
   interface Props {
@@ -10,6 +10,9 @@
   }
 
   let { entityId, targetPath, scale, position }: Props = $props();
+
+  let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
+  let isRoot = $derived(parentId === undefined);
 
   /// Determine the display name for this entity.
   let displayName = $derived(targetPath ?? `Entity #${entityId}`);
@@ -74,7 +77,7 @@
 
 <div
   class="render-file"
-  style="transform: scale({scale}); left: {position.x}px; top: {position.y}px;"
+  style="{isRoot ? `left: ${position.x}px; top: ${position.y}px;` : ''} transform: scale(${scale});"
   class:editable={$editMode}
 >
   {#if hasError}

@@ -31,16 +31,24 @@ pub fn init_db(path: &std::path::Path) -> Result<Connection> {
         ",
     )?;
 
+    // Migration: Add parent_id column if not exists
+    let _ = conn.execute("ALTER TABLE entities ADD COLUMN parent_id INTEGER", []);
+
     Ok(conn)
 }
 
-/// Loads all entity IDs from the database.
-pub fn load_entities(conn: &Connection) -> Result<Vec<u64>> {
-    let mut stmt = conn.prepare("SELECT id FROM entities")?;
-    let ids = stmt
-        .query_map([], |row| row.get::<_, u64>(0))?
+/// Loads all entity IDs and their parent IDs from the database.
+pub fn load_entities(conn: &Connection) -> Result<Vec<(u64, Option<u64>)>> {
+    let mut stmt = conn.prepare("SELECT id, parent_id FROM entities")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, u64>(0)?,
+                row.get::<_, Option<u64>>(1)?,
+            ))
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    Ok(ids)
+    Ok(rows)
 }
 
 /// Loads all components from the database.
@@ -70,7 +78,11 @@ pub fn save_world(conn: &Connection, world: &World) -> Result<()> {
 
     // Save entities
     for eid in world.entities.all() {
-        conn.execute("INSERT INTO entities (id) VALUES (?1)", [eid.0])?;
+        let parent_id = world.parent_ids.get(eid).map(|pid| pid.0);
+        conn.execute(
+            "INSERT INTO entities (id, parent_id) VALUES (?1, ?2)",
+            rusqlite::params![eid.0, parent_id],
+        )?;
     }
 
     // Save components

@@ -1,25 +1,35 @@
 <script lang="ts">
-  import { editMode } from "../stores/world";
+  import { editMode, worldStore } from "../stores/world";
+  import RenderEntity from "./RenderEntity.svelte";
 
   interface Props {
     entityId: number;
     columns: number;
     gap: number;
     draggable: boolean;
-    children?: import("svelte").Snippet;
   }
 
-  let { entityId, columns, gap, draggable, children }: Props = $props();
+  let { entityId, columns, gap, draggable }: Props = $props();
+
+  let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
+  let isRoot = $derived(parentId === undefined);
+
+  let renderSettings = $derived.by(() => {
+    const comp = $worldStore.getComponent(entityId, "renderFile");
+    return comp?.settings as { scale: number; position: { x: number; y: number } } | undefined;
+  });
+
+  let children = $derived($worldStore.getChildren(entityId));
 </script>
 
 <div
   class="grid-container"
   class:draggable={draggable}
-  style="--grid-columns: {columns}; --grid-gap: {gap}px;"
+  style="{isRoot && renderSettings ? `position: relative; left: ${renderSettings.position.x}px; top: ${renderSettings.position.y}px; transform: scale(${renderSettings.scale});` : ''} --grid-columns: {columns}; --grid-gap: {gap}px;"
 >
-  {#if children}
-    {@render children()}
-  {/if}
+  {#each children as childId (childId)}
+    <RenderEntity entityId={childId} />
+  {/each}
 </div>
 
 <style>
