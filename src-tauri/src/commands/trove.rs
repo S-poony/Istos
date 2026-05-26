@@ -6,71 +6,6 @@ use crate::ecs::{
     component::create_component, EntityId, WorldSnapshot, WorldState,
 };
 
-fn scan_directory(
-    w: &mut crate::ecs::World,
-    dir_path: &std::path::Path,
-    parent_id: Option<crate::ecs::EntityId>,
-    file_count: &mut usize,
-    dir_count: &mut usize,
-) -> Result<(), String> {
-    let entries = std::fs::read_dir(dir_path).map_err(|e| {
-        error!("Failed to read directory {}: {}", dir_path.display(), e);
-        format!("Failed to read directory: {}", e)
-    })?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| {
-            error!("Failed to read entry: {}", e);
-            e.to_string()
-        })?;
-        let path = entry.path();
-        let entity = w.create_entity();
-        if let Some(pid) = parent_id {
-            w.parent_ids.insert(entity, pid);
-        }
-
-        if path.is_file() {
-            // Add renderFile component for any file
-            let component = create_component("renderFile", serde_json::json!({
-                "targetPath": path.to_string_lossy(),
-                "scale": 1.0,
-                "position": {"x": 0, "y": 0}
-            })).ok_or_else(|| {
-                error!("Failed to create renderFile component for {}", path.display());
-                "Failed to create renderFile component".to_string()
-            })?;
-            w.add_component(entity, component);
-            *file_count += 1;
-        } else if path.is_dir() {
-            // Add grid component
-            let component = create_component("grid", serde_json::json!({
-                "columns": 3,
-                "gap": 10
-            })).ok_or_else(|| {
-                error!("Failed to create grid component for dir {}", path.display());
-                "Failed to create grid component".to_string()
-            })?;
-            w.add_component(entity, component);
-
-            // Add renderFile component so the folder is visible
-            let render_component = create_component("renderFile", serde_json::json!({
-                "targetPath": path.to_string_lossy(),
-                "scale": 1.0,
-                "position": {"x": 0, "y": 0}
-            })).ok_or_else(|| {
-                error!("Failed to create renderFile component for dir {}", path.display());
-                "Failed to create renderFile component".to_string()
-            })?;
-            w.add_component(entity, render_component);
-            *dir_count += 1;
-
-            // Recurse
-            scan_directory(w, &path, Some(entity), file_count, dir_count)?;
-        }
-    }
-    Ok(())
-}
-
 pub fn open_trove_impl(
     w: &mut crate::ecs::World,
     conn: &rusqlite::Connection,
@@ -81,7 +16,73 @@ pub fn open_trove_impl(
 
     let mut file_count = 0;
     let mut dir_count = 0;
-    scan_directory(w, std::path::Path::new(path), None, &mut file_count, &mut dir_count)?;
+
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back((std::path::PathBuf::from(path), None));
+
+    while let Some((dir_path, parent_id)) = queue.pop_front() {
+        let entries = std::fs::read_dir(&dir_path).map_err(|e| {
+            error!("Failed to read directory {}: {}", dir_path.display(), e);
+            format!("Failed to read directory: {}", e)
+        })?;
+
+        let mut paths = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                error!("Failed to read entry: {}", e);
+                e.to_string()
+            })?;
+            paths.push(entry.path());
+        }
+
+        // Sort paths alphabetically to keep scanning order stable within each directory
+        paths.sort();
+
+        for path in paths {
+            let entity = w.create_entity();
+            if let Some(pid) = parent_id {
+                w.parent_ids.insert(entity, pid);
+            }
+
+            if path.is_file() {
+                // Add renderFile component for any file
+                let component = create_component("renderFile", serde_json::json!({
+                    "targetPath": path.to_string_lossy(),
+                    "scale": 1.0,
+                    "position": {"x": 0, "y": 0}
+                })).ok_or_else(|| {
+                    error!("Failed to create renderFile component for {}", path.display());
+                    "Failed to create renderFile component".to_string()
+                })?;
+                w.add_component(entity, component);
+                file_count += 1;
+            } else if path.is_dir() {
+                // Add grid component
+                let component = create_component("grid", serde_json::json!({
+                    "columns": 3,
+                    "gap": 10
+                })).ok_or_else(|| {
+                    error!("Failed to create grid component for dir {}", path.display());
+                    "Failed to create grid component".to_string()
+                })?;
+                w.add_component(entity, component);
+
+                // Add renderFile component so the folder is visible
+                let render_component = create_component("renderFile", serde_json::json!({
+                    "targetPath": path.to_string_lossy(),
+                    "scale": 1.0,
+                    "position": {"x": 0, "y": 0}
+                })).ok_or_else(|| {
+                    error!("Failed to create renderFile component for dir {}", path.display());
+                    "Failed to create renderFile component".to_string()
+                })?;
+                w.add_component(entity, render_component);
+                dir_count += 1;
+
+                queue.push_back((path, Some(entity)));
+            }
+        }
+    }
 
     info!("Processed {} files and {} directories", file_count, dir_count);
 
