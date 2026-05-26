@@ -28,3 +28,18 @@ It renders a CSS grid container and calls `{@render children()}`, but has no log
 
 ### Separate iteration loops prevent nesting
 Desktop.svelte has two separate `{#each}` loops — one for grid entities and one for renderFile entities. This means all grids are rendered at the top level and all files are rendered at the top level. Grids-in-grids would require recursive rendering.
+
+### Agent Log & Learnings
+
+- **Tauri State Unit Testing Compile Error**:
+  - *Mistake*: Calling Tauri commands that accept `State<'_, T>` directly with raw parameters in Rust unit tests fails to compile since the compiler expects a `State` wrapper (and you can't construct it manually).
+  - *Solution*: Extract the core business logic into a pure implementation function (e.g., `open_trove_impl`) accepting standard references (`&mut World`, `&Connection`) and test that function instead.
+
+- **Svelte 5 SSR / Mounting Error in Vitest**:
+  - *Mistake*: Svelte 5 testing with Vitest under jsdom can crash with preprocessor issues (`Cannot create proxy with a non-object...`) and mount failures (`mount(...) is not available on the server`) because it incorrectly loads the SSR/server entry point.
+  - *Solution*: Match Vite 6 with Vitest 3+ (`npm install --save-dev vitest@latest @vitest/ui@latest`) and configure `resolve.conditions: ['browser']` in `vite.config.ts` so Vitest resolves browser-compatible packages.
+
+- **Test database scanned during directory scans**:
+  - *Mistake*: Creating the test SQLite database file directly in the temporary folder being scanned caused the scanner to index the `.db` file as an entity, causing assertion mismatches.
+  - *Solution*: Always place the database file in a parent directory or a separate folder outside of the scanned path.
+

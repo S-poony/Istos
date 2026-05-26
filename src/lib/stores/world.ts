@@ -4,17 +4,17 @@ import type { WorldData, EntityId } from "../types";
 
 /// The reactive world store.
 function createWorldStore() {
-  const world = new World();
-  const { subscribe, set, update } = writable(world);
+  let world = new World();
+  const { subscribe, set } = writable(world);
 
   return {
     subscribe,
-    set,
-    update,
 
     /// Load world state from backend data.
     loadFromData(data: WorldData) {
-      world.loadFromData(data);
+      const newWorld = new World();
+      newWorld.loadFromData(data);
+      world = newWorld;
       set(world);
     },
 
