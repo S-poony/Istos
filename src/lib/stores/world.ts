@@ -31,7 +31,7 @@ export const worldStore = createWorldStore();
 export const rootEntities = derived(worldStore, ($world) => {
   const roots: EntityId[] = [];
   for (const [id, entity] of $world.entities) {
-    if (entity.parentId === undefined) {
+    if (entity.parentId === undefined || entity.parentId === null) {
       roots.push(id);
     }
   }

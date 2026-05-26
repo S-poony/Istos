@@ -43,3 +43,8 @@ Desktop.svelte has two separate `{#each}` loops — one for grid entities and on
   - *Mistake*: Creating the test SQLite database file directly in the temporary folder being scanned caused the scanner to index the `.db` file as an entity, causing assertion mismatches.
   - *Solution*: Always place the database file in a parent directory or a separate folder outside of the scanned path.
 
+- **JavaScript `null` vs `undefined` in ECS Serialization**:
+  - *Mistake*: Rust `Option::None` serializes to `null` in JSON. If the TypeScript ECS parser only checks `parentId !== undefined`, it sets `parentId = null` on the entity. Subsequent checks checking strictly for `parentId === undefined` evaluate to `false` for all root entities, rendering nothing on the desktop.
+  - *Solution*: Filter out `null` at deserialization (e.g. `parentId !== undefined && parentId !== null`) and use defensive checks like `parentId === undefined || parentId === null` in components and derived stores.
+
+

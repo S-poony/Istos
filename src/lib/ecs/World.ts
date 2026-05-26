@@ -14,7 +14,7 @@ export class World {
   /// Creates a new entity.
   createEntity(id: EntityId, parentId?: EntityId): Entity {
     const entity = new Entity(id);
-    if (parentId !== undefined) {
+    if (parentId !== undefined && parentId !== null) {
       entity.parentId = parentId;
     }
     this.entities.set(id, entity);

@@ -12,7 +12,7 @@
   let { entityId, columns, gap, draggable }: Props = $props();
 
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
-  let isRoot = $derived(parentId === undefined);
+  let isRoot = $derived(parentId === undefined || parentId === null);
 
   let renderSettings = $derived.by(() => {
     const comp = $worldStore.getComponent(entityId, "renderFile");

@@ -12,7 +12,7 @@
   let { entityId, targetPath, scale, position }: Props = $props();
 
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
-  let isRoot = $derived(parentId === undefined);
+  let isRoot = $derived(parentId === undefined || parentId === null);
 
   /// Determine the display name for this entity.
   let displayName = $derived(targetPath ?? `Entity #${entityId}`);
