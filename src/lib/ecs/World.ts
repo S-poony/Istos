@@ -72,7 +72,29 @@ export class World {
         result.push(id);
       }
     }
-    return result;
+    return this.sortEntities(result);
+  }
+
+  /// Sorts entities: folders first (has 'grid' component), then files, both alphabetically.
+  sortEntities(entityIds: EntityId[]): EntityId[] {
+    return [...entityIds].sort((a, b) => {
+      const aHasGrid = this.getComponent(a, "grid") !== undefined;
+      const bHasGrid = this.getComponent(b, "grid") !== undefined;
+
+      if (aHasGrid && !bHasGrid) return -1;
+      if (!aHasGrid && bHasGrid) return 1;
+
+      const aComp = this.getComponent(a, "renderFile");
+      const bComp = this.getComponent(b, "renderFile");
+
+      const aPath = (aComp?.settings?.targetPath as string) || `Entity #${a}`;
+      const bPath = (bComp?.settings?.targetPath as string) || `Entity #${b}`;
+
+      const aName = aPath.split(/[/\\]/).pop() || "";
+      const bName = bPath.split(/[/\\]/).pop() || "";
+
+      return aName.localeCompare(bName, undefined, { numeric: true, sensitivity: 'base' });
+    });
   }
 
   /// Registers a system.

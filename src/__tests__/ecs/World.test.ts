@@ -71,6 +71,7 @@ describe('ECS World - Parent/Child Hierarchy', () => {
     world.createEntity(3, 1);
     world.addComponent(1, new Component('grid', { columns: 3, gap: 8 }));
     world.addComponent(2, new Component('renderFile', { targetPath: '/test.png' }));
+    world.addComponent(3, new Component('renderFile', { targetPath: '/z_another.png' }));
 
     const data = world.toData();
     const world2 = new World();

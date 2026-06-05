@@ -35,7 +35,7 @@ export const rootEntities = derived(worldStore, ($world) => {
       roots.push(id);
     }
   }
-  return roots;
+  return $world.sortEntities(roots);
 });
 
 /// Derived store: entities that have a grid component.

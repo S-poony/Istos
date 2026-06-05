@@ -35,8 +35,21 @@ pub fn open_trove_impl(
             paths.push(entry.path());
         }
 
-        // Sort paths alphabetically to keep scanning order stable within each directory
-        paths.sort();
+        // Sort paths: directories first (alphabetically), then files (alphabetically)
+        paths.sort_by(|a, b| {
+            let a_is_dir = a.is_dir();
+            let b_is_dir = b.is_dir();
+            
+            if a_is_dir && !b_is_dir {
+                std::cmp::Ordering::Less
+            } else if !a_is_dir && b_is_dir {
+                std::cmp::Ordering::Greater
+            } else {
+                let a_name = a.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                let b_name = b.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                a_name.cmp(&b_name)
+            }
+        });
 
         for path in paths {
             let entity = w.create_entity();
