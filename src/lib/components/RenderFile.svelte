@@ -50,6 +50,60 @@
 
   let hasError = $state(false);
   let textContent = $state("");
+  let orientation = $state<'landscape' | 'portrait' | null>(null);
+
+  let computedOrientation = $derived.by(() => {
+    if (isAudio) return 'landscape';
+    if (isText) return 'portrait';
+    return orientation;
+  });
+
+  let parentColumns = $derived.by(() => {
+    if (parentId === undefined || parentId === null) return 4;
+    const comp = $worldStore.getComponent(parentId, "grid");
+    return (comp?.settings?.columns as number) ?? 4;
+  });
+
+  let canSpanColumns = $derived(parentColumns > 1);
+
+  let imgElement = $state<HTMLImageElement | null>(null);
+  let videoElement = $state<HTMLVideoElement | null>(null);
+
+  function handleImageLoad(img: HTMLImageElement) {
+    if (img.naturalWidth >= img.naturalHeight) {
+      orientation = 'landscape';
+    } else {
+      orientation = 'portrait';
+    }
+  }
+
+  function handleVideoMetadata(video: HTMLVideoElement) {
+    if (video.videoWidth >= video.videoHeight) {
+      orientation = 'landscape';
+    } else {
+      orientation = 'portrait';
+    }
+  }
+
+  $effect(() => {
+    if (isText) {
+      orientation = 'portrait';
+    }
+  });
+
+  $effect(() => {
+    // Add mediaSrc dependency to re-evaluate when media path updates (e.g. cache hits)
+    if (mediaSrc && imgElement && imgElement.complete) {
+      handleImageLoad(imgElement);
+    }
+  });
+
+  $effect(() => {
+    // Add mediaSrc dependency to re-evaluate when media path updates
+    if (mediaSrc && videoElement && videoElement.readyState >= 1) {
+      handleVideoMetadata(videoElement);
+    }
+  });
 
   $effect(() => {
     if (isText && mediaSrc) {
@@ -78,6 +132,9 @@
 <div
   class="render-file"
   class:audio-file={isAudio}
+  class:portrait={computedOrientation === 'portrait'}
+  class:landscape={computedOrientation === 'landscape'}
+  class:span-cols={computedOrientation === 'landscape' && canSpanColumns}
   style="{isRoot ? `left: ${position.x}px; top: ${position.y}px;` : ''} transform: scale(${scale});"
   class:editable={$editMode}
 >
@@ -88,13 +145,26 @@
       <span class="file-name" style="font-size: 10px;">{displayName}</span>
     </div>
   {:else if isImage}
-    <img src={mediaSrc} alt={displayName} draggable={false} onerror={handleError} />
+    <img
+      bind:this={imgElement}
+      src={mediaSrc}
+      alt={displayName}
+      draggable={false}
+      onerror={handleError}
+      onload={(e) => handleImageLoad(e.currentTarget)}
+    />
   {:else if isAudio}
     <audio controls src={mediaSrc} onerror={handleError}>
       Your browser does not support the audio element.
     </audio>
   {:else if isVideo}
-    <video controls src={mediaSrc} onerror={handleError}>
+    <video
+      bind:this={videoElement}
+      controls
+      src={mediaSrc}
+      onerror={handleError}
+      onloadedmetadata={(e) => handleVideoMetadata(e.currentTarget)}
+    >
       <track kind="captions">
       Your browser does not support the video element.
     </video>
@@ -121,13 +191,35 @@
     background-color: var(--bg-secondary);
     border: 1px solid var(--border);
     width: 100%;
-    height: 160px; /* Constrained height prevents vertical layout overflow */
+    height: 160px; /* Default height for standalone */
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
   }
 
-  .render-file.audio-file {
-    height: 64px; /* Compact height for audio players */
+  /* Explicit heights based on grid row spans to prevent stretching when rows expand.
+     Uses global descendant selectors to match reliably regardless of Svelte scoping wrapper. */
+  :global(.grid-container) :global(.render-file.portrait) {
+    grid-row: span 3;
+    height: calc(240px + 2 * var(--grid-gap, 8px));
+    max-width: 192px; /* Prevent vertical stretching in wide columns */
+    justify-self: start;
+  }
+
+  :global(.grid-container) :global(.render-file.landscape) {
+    grid-row: span 2;
+    height: calc(160px + var(--grid-gap, 8px));
+    max-width: 400px; /* Prevent horizontal stretching in wide columns */
+    justify-self: start;
+  }
+
+  :global(.grid-container) :global(.render-file.landscape.span-cols) {
+    grid-column: span 2;
+  }
+
+  :global(.grid-container) :global(.render-file.audio-file) {
+    grid-row: span 1;
+    height: 64px;
+    margin: auto 0;
   }
 
   .render-file.editable {

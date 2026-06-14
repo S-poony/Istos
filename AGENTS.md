@@ -20,9 +20,9 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
 - **Generic Parenting Visualization (Entity Wrappers)**:
   - *Design*: Avoid using folder-specific icons or names (like "folder wrapper") for containers. In an ECS file desktop shell, any file entity (e.g. an image) can hold other files. Wrap grid layouts in a generic `.entity-wrapper` with a header displaying the parent's filename/path or fallback `Entity #ID` without folder assumptions.
 
-- **Grid Item Height Contraction and Intrinsic Sizing**:
-  - *Mistake*: Letting `.render-file` child elements like `img`, `video`, or text containers use `height: 100%` without setting a height constraint on their parent wrapper causes the parent's height to expand to match the content's intrinsic/natural height. This causes grid items to vertically stretch to thousands of pixels, overflowing other elements, and breaking layout rows.
-  - *Solution*: Set a bounding height (e.g. `height: 160px;` and specialized heights like `height: 64px` for audio) on the wrapper so that contents scale correctly (using `object-fit: cover`) or scroll internally (using `overflow: auto;`).
+- **Grid Item Height Contraction and Intrinsic Sizing (Orientation Spanning)**:
+  - *Mistake*: Letting `.render-file` child elements like `img`, `video`, or text containers use `height: 100%` without setting a height constraint on their parent wrapper causes the parent's height to expand to match the content's intrinsic/natural height. This causes grid items to vertically stretch to thousands of pixels, overflowing other elements, and breaking layout rows. If forced to a uniform height, images get squished or cropped incorrectly depending on their vertical vs horizontal orientation.
+  - *Solution*: Bind dimensions check (`onload` and `onloadedmetadata`) to dynamically classify media orientation into `portrait` or `landscape` (landscape winning in case of a tie). Assign distinct CSS Grid spans and calculate height limits matching base row tracks (e.g., portrait spans 3 rows, landscape spans 2 rows & 2 columns, audio spans 1 row), preventing vertical squishing while keeping layouts responsive and fully aligned.
 
 - **Tauri State Unit Testing Compile Error**:
   - *Mistake*: Calling Tauri commands that accept `State<'_, T>` directly with raw parameters in Rust unit tests fails to compile since the compiler expects a `State` wrapper (and you can't construct it manually).

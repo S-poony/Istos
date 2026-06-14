@@ -96,10 +96,12 @@
   .grid-container {
     display: grid;
     grid-template-columns: repeat(var(--grid-columns, 4), minmax(0, 1fr));
+    grid-auto-rows: minmax(80px, auto);
     gap: var(--grid-gap, 8px);
     width: 100%;
     min-height: 80px; /* give it some height when empty */
     align-content: start;
+    align-items: start;
     border-radius: 6px;
     transition: border-color 0.2s, background-color 0.2s;
   }
