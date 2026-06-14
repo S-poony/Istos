@@ -6,13 +6,19 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
 
 ### Next Steps & UI Enhancements
 
-- **UI Nesting Borders (Parenting Visualization)**:
-  - Currently, empty entities like folders (which only contain a `grid` component and potentially child files/folders) do not render any distinct visual wrapper. This makes the parent-child nesting hierarchy unclear to the user.
-  - We need to add thin box borders that recursively stack around entities to clearly show parenting and containment.
-- **Layout & Overflow Bug Fixes**:
-  - The content can sometimes overflow on the right side of the page. We need to fix the layout styling to handle overflow cleanly.
+- **UI controls for adding/removing components**:
+  - Build easy-to-use buttons/menus in edit mode to attach or detach components (like `renderFile`, `grid`, `timeline`) to/from entities.
+- **Component settings UI panels**:
+  - Implement configurable inputs (text fields, checkboxes, sliders) to adjust component properties in real-time.
 
 ### Agent Log & Learnings
+
+- **CSS Grid Column Overflow with Nested Layouts**:
+  - *Mistake*: Using `grid-template-columns: repeat(N, 1fr)` inside nested layout containers causes horizontal overflow on the right of the page. This happens because `1fr` is shorthand for `minmax(auto, 1fr)`, which prevents columns from shrinking below the minimum content size of their children (such as nested grids).
+  - *Solution*: Use `grid-template-columns: repeat(N, minmax(0, 1fr))` to allow columns to shrink to fit the parent's actual width boundaries, resolving the layout overflow cleanly.
+
+- **Generic Parenting Visualization (Entity Wrappers)**:
+  - *Design*: Avoid using folder-specific icons or names (like "folder wrapper") for containers. In an ECS file desktop shell, any file entity (e.g. an image) can hold other files. Wrap grid layouts in a generic `.entity-wrapper` with a header displaying the parent's filename/path or fallback `Entity #ID` without folder assumptions.
 
 - **Tauri State Unit Testing Compile Error**:
   - *Mistake*: Calling Tauri commands that accept `State<'_, T>` directly with raw parameters in Rust unit tests fails to compile since the compiler expects a `State` wrapper (and you can't construct it manually).
@@ -29,3 +35,4 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
 - **JavaScript `null` vs `undefined` in ECS Serialization**:
   - *Mistake*: Rust `Option::None` serializes to `null` in JSON. If the TypeScript ECS parser only checks `parentId !== undefined`, it sets `parentId = null` on the entity. Subsequent checks checking strictly for `parentId === undefined` evaluate to `false` for all root entities, rendering nothing on the desktop.
   - *Solution*: Filter out `null` at deserialization (e.g. `parentId !== undefined && parentId !== null`) and use defensive checks like `parentId === undefined || parentId === null` in components and derived stores.
+
