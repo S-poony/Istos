@@ -77,6 +77,7 @@
 
 <div
   class="render-file"
+  class:audio-file={isAudio}
   style="{isRoot ? `left: ${position.x}px; top: ${position.y}px;` : ''} transform: scale(${scale});"
   class:editable={$editMode}
 >
@@ -119,8 +120,14 @@
     overflow: hidden;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border);
-    min-height: 80px;
-    min-width: 80px;
+    width: 100%;
+    height: 160px; /* Constrained height prevents vertical layout overflow */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .render-file.audio-file {
+    height: 64px; /* Compact height for audio players */
   }
 
   .render-file.editable {
@@ -152,10 +159,15 @@
     justify-content: center;
     gap: 4px;
     padding: 16px;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
   }
 
   .file-icon {
     font-size: 32px;
+    flex-shrink: 0;
   }
 
   .file-name {
@@ -163,6 +175,11 @@
     color: var(--text-secondary);
     text-align: center;
     word-break: break-all;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-height: 4.5em; /* approximate height for 3 lines */
   }
   .text-content {
     width: 100%;

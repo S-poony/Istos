@@ -20,6 +20,10 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
 - **Generic Parenting Visualization (Entity Wrappers)**:
   - *Design*: Avoid using folder-specific icons or names (like "folder wrapper") for containers. In an ECS file desktop shell, any file entity (e.g. an image) can hold other files. Wrap grid layouts in a generic `.entity-wrapper` with a header displaying the parent's filename/path or fallback `Entity #ID` without folder assumptions.
 
+- **Grid Item Height Contraction and Intrinsic Sizing**:
+  - *Mistake*: Letting `.render-file` child elements like `img`, `video`, or text containers use `height: 100%` without setting a height constraint on their parent wrapper causes the parent's height to expand to match the content's intrinsic/natural height. This causes grid items to vertically stretch to thousands of pixels, overflowing other elements, and breaking layout rows.
+  - *Solution*: Set a bounding height (e.g. `height: 160px;` and specialized heights like `height: 64px` for audio) on the wrapper so that contents scale correctly (using `object-fit: cover`) or scroll internally (using `overflow: auto;`).
+
 - **Tauri State Unit Testing Compile Error**:
   - *Mistake*: Calling Tauri commands that accept `State<'_, T>` directly with raw parameters in Rust unit tests fails to compile since the compiler expects a `State` wrapper (and you can't construct it manually).
   - *Solution*: Extract the core business logic into a pure implementation function (e.g., `open_trove_impl`) accepting standard references (`&mut World`, `&Connection`) and test that function instead.
