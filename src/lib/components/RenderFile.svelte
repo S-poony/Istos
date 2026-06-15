@@ -229,11 +229,6 @@
   .render-file img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
-  }
-
-  /* Portrait images use contain so the full vertical image is visible */
-  .render-file.portrait img {
     object-fit: contain;
   }
 
