@@ -259,6 +259,7 @@
     word-break: break-all;
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
     max-height: 4.5em; /* approximate height for 3 lines */
