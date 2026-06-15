@@ -127,6 +127,8 @@
               entityId: sourceId,
               newParentId: targetParentId,
             });
+            // Refresh the store so children lists reflect the move
+            await worldStore.refreshFromBackend();
             // Now reorder within the new parent
             const targetSiblings = $worldStore.getChildren(targetParentId).filter(id => id !== sourceId);
             const targetIdx = targetSiblings.indexOf(targetId);
@@ -157,7 +159,7 @@
   }
 </script>
 
-<div class="tree-root">
+<div class="tree-root" ondragover={(e) => e.preventDefault()}>
   {#each rootIds as id (id)}
     <TreeNode
       {id}

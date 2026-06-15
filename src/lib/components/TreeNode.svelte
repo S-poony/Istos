@@ -1,6 +1,7 @@
 <script lang="ts">
   import { worldStore } from "../stores/world";
   import type { EntityId } from "../types";
+  import TreeNode from "./TreeNode.svelte";
 
   interface Props {
     id: EntityId;
@@ -69,6 +70,9 @@
     return "📄";
   });
 
+  /// Pre-compute ordered children for the each block
+  let orderedChildren = $derived($worldStore.getOrderedChildren(id));
+
   function toggleExpand(e: MouseEvent) {
     e.stopPropagation();
     if (hasChildren || folder) {
@@ -110,6 +114,7 @@
   class="tree-node-wrapper"
   class:drop-before={dropBefore}
   class:drop-after={dropAfter}
+  ondragover={(e: DragEvent) => e.preventDefault()}
 >
   <div
     class="tree-node"
@@ -136,9 +141,9 @@
     <span class="name">{displayName}</span>
   </div>
 
-  {#if expanded && (folder || hasChildren)}
+  {#if expanded && (folder || orderedChildren.length > 0)}
     <div class="children">
-      {#each $worldStore.getOrderedChildren(id) as childId (childId)}
+      {#each orderedChildren as childId (childId)}
         <TreeNode
           id={childId}
           {draggedId}
