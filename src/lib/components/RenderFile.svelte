@@ -92,16 +92,18 @@
   });
 
   $effect(() => {
-    // Add mediaSrc dependency to re-evaluate when media path updates (e.g. cache hits)
-    if (mediaSrc && imgElement && imgElement.complete) {
-      handleImageLoad(imgElement);
+    const img = imgElement;
+    const src = mediaSrc;
+    if (src && img && img.complete) {
+      handleImageLoad(img);
     }
   });
 
   $effect(() => {
-    // Add mediaSrc dependency to re-evaluate when media path updates
-    if (mediaSrc && videoElement && videoElement.readyState >= 1) {
-      handleVideoMetadata(videoElement);
+    const video = videoElement;
+    const src = mediaSrc;
+    if (src && video && video.readyState >= 1) {
+      handleVideoMetadata(video);
     }
   });
 
@@ -135,7 +137,6 @@
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
   class:span-cols={computedOrientation === 'landscape' && canSpanColumns}
-  style="{isRoot ? `left: ${position.x}px; top: ${position.y}px;` : ''} transform: scale(${scale});"
   class:editable={$editMode}
 >
   {#if hasError}
@@ -188,6 +189,8 @@
     position: relative;
     border-radius: 8px;
     overflow: hidden;
+    contain: paint;
+    transform: translateZ(0);
     background-color: var(--bg-secondary);
     border: 1px solid var(--border);
     width: 100%;
@@ -197,28 +200,24 @@
   }
 
   /* Explicit heights based on grid row spans to prevent stretching when rows expand.
-     Uses global descendant selectors to match reliably regardless of Svelte scoping wrapper. */
-  :global(.grid-container) :global(.render-file.portrait) {
+     Uses direct child selectors to avoid leaking into nested grids. */
+  :global(.grid-container > .render-file.portrait) {
     grid-row: span 3;
-    height: calc(240px + 2 * var(--grid-gap, 8px));
-    max-width: 192px; /* Prevent vertical stretching in wide columns */
-    justify-self: start;
+    min-height: calc(240px + 2 * var(--grid-gap, 8px));
   }
 
-  :global(.grid-container) :global(.render-file.landscape) {
+  :global(.grid-container > .render-file.landscape) {
     grid-row: span 2;
-    height: calc(160px + var(--grid-gap, 8px));
-    max-width: 400px; /* Prevent horizontal stretching in wide columns */
-    justify-self: start;
+    min-height: calc(160px + var(--grid-gap, 8px));
   }
 
-  :global(.grid-container) :global(.render-file.landscape.span-cols) {
+  :global(.grid-container > .render-file.landscape.span-cols) {
     grid-column: span 2;
   }
 
-  :global(.grid-container) :global(.render-file.audio-file) {
+  :global(.grid-container > .render-file.audio-file) {
     grid-row: span 1;
-    height: 64px;
+    min-height: 64px;
     margin: auto 0;
   }
 
@@ -231,6 +230,11 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+
+  /* Portrait images use contain so the full vertical image is visible */
+  .render-file.portrait img {
+    object-fit: contain;
   }
 
   .render-file audio {

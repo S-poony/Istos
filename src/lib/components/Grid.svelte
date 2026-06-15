@@ -14,16 +14,25 @@
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
   let isRoot = $derived(parentId === undefined || parentId === null);
 
-  let renderSettings = $derived.by(() => {
-    const comp = $worldStore.getComponent(entityId, "renderFile");
-    return comp?.settings as { targetPath?: string; scale: number; position: { x: number; y: number } } | undefined;
-  });
-
   let entityName = $derived.by(() => {
-    const path = renderSettings?.targetPath;
-    if (!path) return `Entity #${entityId}`;
-    const parts = path.split(/[/\\]/);
-    return parts[parts.length - 1] || path;
+    // Try to get a display name from a renderFile component on this entity
+    const rf = $worldStore.getComponent(entityId, "renderFile");
+    const path = rf?.settings?.targetPath as string | undefined;
+    if (path) {
+      const parts = path.split(/[/\\]/);
+      return parts[parts.length - 1] || path;
+    }
+    // Fallback: try the first child's renderFile path
+    const children = $worldStore.getChildren(entityId);
+    for (const childId of children) {
+      const childRf = $worldStore.getComponent(childId, "renderFile");
+      const childPath = childRf?.settings?.targetPath as string | undefined;
+      if (childPath) {
+        const parts = childPath.split(/[/\\]/);
+        return parts[parts.length - 1] || childPath;
+      }
+    }
+    return `Entity #${entityId}`;
   });
 
   let children = $derived($worldStore.getChildren(entityId));
@@ -31,8 +40,8 @@
 
 <div
   class="entity-wrapper"
+  class:root={isRoot}
   class:draggable={draggable}
-  style="{isRoot && renderSettings ? `position: relative; left: ${renderSettings.position.x}px; top: ${renderSettings.position.y}px; transform: scale(${renderSettings.scale});` : ''}"
 >
   <div class="entity-header">
     <span class="entity-name">{entityName}</span>
@@ -53,12 +62,24 @@
     flex-direction: column;
     width: 100%;
     max-width: 100%;
+    min-height: 0;
+    position: relative;
     background-color: rgba(42, 42, 62, 0.25);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  /* Root entities on the desktop only take the space they need */
+  .entity-wrapper.root {
+    height: fit-content;
+  }
+
+  /* Nested entities fill their parent grid cell */
+  .entity-wrapper:not(.root) {
+    height: 100%;
   }
 
   .entity-wrapper:hover {
@@ -99,9 +120,10 @@
     grid-auto-rows: minmax(80px, auto);
     gap: var(--grid-gap, 8px);
     width: 100%;
+    flex: 1;
     min-height: 80px; /* give it some height when empty */
     align-content: start;
-    align-items: start;
+    align-items: stretch;
     border-radius: 6px;
     transition: border-color 0.2s, background-color 0.2s;
   }
@@ -117,4 +139,3 @@
     background-color: rgba(0, 0, 0, 0.05);
   }
 </style>
-
