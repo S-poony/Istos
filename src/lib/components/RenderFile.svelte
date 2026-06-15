@@ -199,20 +199,17 @@
     aspect-ratio: 3 / 4;
     min-height: 180px;
     max-height: 400px;
-    align-self: center;
   }
 
   /* Landscape items: wide aspect ratio, single row */
   :global(.grid-container > .render-file.landscape) {
     aspect-ratio: 16 / 9;
     min-height: 120px;
-    align-self: center;
   }
 
 
   :global(.grid-container > .render-file.audio-file) {
     min-height: 54px;
-    align-self: center;
   }
 
   .render-file.editable {
