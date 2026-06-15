@@ -58,13 +58,7 @@
     return orientation;
   });
 
-  let parentColumns = $derived.by(() => {
-    if (parentId === undefined || parentId === null) return 4;
-    const comp = $worldStore.getComponent(parentId, "grid");
-    return (comp?.settings?.columns as number) ?? 4;
-  });
 
-  let canSpanColumns = $derived(parentColumns > 1);
 
   let imgElement = $state<HTMLImageElement | null>(null);
   let videoElement = $state<HTMLVideoElement | null>(null);
@@ -136,7 +130,6 @@
   class:audio-file={isAudio}
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
-  class:span-cols={computedOrientation === 'landscape' && canSpanColumns}
   class:editable={$editMode}
 >
   {#if hasError}
@@ -216,10 +209,6 @@
     align-self: center;
   }
 
-  /* Landscape items that can span 2 columns for extra width */
-  :global(.grid-container > .render-file.landscape.span-cols) {
-    grid-column: span 2;
-  }
 
   :global(.grid-container > .render-file.audio-file) {
     min-height: 54px;
