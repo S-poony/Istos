@@ -194,31 +194,36 @@
     background-color: var(--bg-secondary);
     border: 1px solid var(--border);
     width: 100%;
-    height: 160px; /* Default height for standalone */
+    height: auto; /* Let aspect-ratio and content determine height */
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
   }
 
   /* Explicit heights based on grid row spans to prevent stretching when rows expand.
      Uses direct child selectors to avoid leaking into nested grids. */
+  /* Portrait items: tall aspect ratio, single row */
   :global(.grid-container > .render-file.portrait) {
-    grid-row: span 3;
-    min-height: calc(240px + 2 * var(--grid-gap, 8px));
+    aspect-ratio: 3 / 4;
+    min-height: 180px;
+    max-height: 400px;
+    align-self: center;
   }
 
+  /* Landscape items: wide aspect ratio, single row */
   :global(.grid-container > .render-file.landscape) {
-    grid-row: span 2;
-    min-height: calc(160px + var(--grid-gap, 8px));
+    aspect-ratio: 16 / 9;
+    min-height: 120px;
+    align-self: center;
   }
 
+  /* Landscape items that can span 2 columns for extra width */
   :global(.grid-container > .render-file.landscape.span-cols) {
     grid-column: span 2;
   }
 
   :global(.grid-container > .render-file.audio-file) {
-    grid-row: span 1;
-    min-height: 64px;
-    margin: auto 0;
+    min-height: 54px;
+    align-self: center;
   }
 
   .render-file.editable {

@@ -63,6 +63,7 @@
     width: 100%;
     max-width: 100%;
     min-height: 0;
+    overflow: hidden;
     position: relative;
     background-color: rgba(42, 42, 62, 0.25);
     border: 1px solid var(--border);
@@ -117,13 +118,13 @@
   .grid-container {
     display: grid;
     grid-template-columns: repeat(var(--grid-columns, 4), minmax(0, 1fr));
-    grid-auto-rows: minmax(80px, auto);
+    grid-auto-rows: auto;
     gap: var(--grid-gap, 8px);
     width: 100%;
     flex: 1;
     min-height: 80px; /* give it some height when empty */
     align-content: start;
-    align-items: stretch;
+    align-items: start;
     border-radius: 6px;
     transition: border-color 0.2s, background-color 0.2s;
   }
