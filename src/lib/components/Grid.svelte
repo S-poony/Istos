@@ -124,7 +124,7 @@
     flex: 1;
     min-height: 80px; /* give it some height when empty */
     align-content: start;
-    align-items: start;
+    align-items: stretch;
     border-radius: 6px;
     transition: border-color 0.2s, background-color 0.2s;
   }

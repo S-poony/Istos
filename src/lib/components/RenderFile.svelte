@@ -145,7 +145,7 @@
       alt={displayName}
       draggable={false}
       onerror={handleError}
-      onload={(e) => handleImageLoad(e.currentTarget)}
+      onload={(e) => handleImageLoad(e.currentTarget as HTMLImageElement)}
     />
   {:else if isAudio}
     <audio controls src={mediaSrc} onerror={handleError}>
@@ -157,7 +157,7 @@
       controls
       src={mediaSrc}
       onerror={handleError}
-      onloadedmetadata={(e) => handleVideoMetadata(e.currentTarget)}
+      onloadedmetadata={(e) => handleVideoMetadata(e.currentTarget as HTMLVideoElement)}
     >
       <track kind="captions">
       Your browser does not support the video element.
@@ -187,7 +187,7 @@
     background-color: var(--bg-secondary);
     border: 1px solid var(--border);
     width: 100%;
-    height: auto; /* Let aspect-ratio and content determine height */
+    height: 100%; /* Fill the grid cell height to match row siblings */
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
   }
