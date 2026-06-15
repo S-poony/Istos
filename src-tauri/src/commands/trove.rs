@@ -5,6 +5,7 @@ use crate::db::DbState;
 use crate::ecs::{
     component::create_component, EntityId, WorldSnapshot, WorldState,
 };
+use std::path::PathBuf;
 
 pub fn open_trove_impl(
     w: &mut crate::ecs::World,
@@ -211,6 +212,159 @@ pub fn update_component_settings(
 
     Ok(())
 }
+
+/// Reorders the children of a grid entity.
+#[tauri::command]
+pub fn reorder_children(
+    world: State<'_, WorldState>,
+    db: State<'_, DbState>,
+    parent_entity_id: u64,
+    ordered_ids: Vec<u64>,
+) -> Result<(), String> {
+    let mut w = world.0.lock().map_err(|e| e.to_string())?;
+    let parent_eid = EntityId::new(parent_entity_id);
+
+    if !w.entities.contains(&parent_eid) {
+        return Err(format!("Parent entity {} not found", parent_entity_id));
+    }
+
+    // Validate that all ordered_ids are actual children
+    let actual_children: Vec<u64> = w.components.iter()
+        .filter_map(|(eid, _)| {
+            if w.parent_ids.get(eid) == Some(&parent_eid) {
+                Some(eid.0)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for &oid in &ordered_ids {
+        if !actual_children.contains(&oid) {
+            return Err(format!("Entity {} is not a child of {}", oid, parent_entity_id));
+        }
+    }
+
+    // Update ordering: if parent is 0 (root), store in config; otherwise update grid component
+    if parent_entity_id == 0 {
+        let order_json = serde_json::to_string(&ordered_ids).unwrap_or_default();
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        crate::db::save_root_order(&conn, &order_json).map_err(|e| e.to_string())?;
+    } else {
+        if let Some(comps) = w.components.get_mut(&parent_eid) {
+            for comp in comps.iter_mut() {
+                if comp.component_type() == "grid" {
+                    let mut settings = comp.settings();
+                    if let serde_json::Value::Object(ref mut map) = settings {
+                        map.insert("order".to_string(), serde_json::json!(ordered_ids));
+                    }
+                    comp.update_settings(settings);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Persist
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    w.save(&conn).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Moves an entity to a new parent (and moves the underlying file on disk).
+#[tauri::command]
+pub fn move_entity(
+    world: State<'_, WorldState>,
+    db: State<'_, DbState>,
+    entity_id: u64,
+    new_parent_id: u64,
+) -> Result<(), String> {
+    let mut w = world.0.lock().map_err(|e| e.to_string())?;
+    let eid = EntityId::new(entity_id);
+    let new_pid = EntityId::new(new_parent_id);
+
+    if !w.entities.contains(&eid) {
+        return Err(format!("Entity {} not found", entity_id));
+    }
+    if !w.entities.contains(&new_pid) {
+        return Err(format!("New parent entity {} not found", new_parent_id));
+    }
+
+    // Get the entity's current path from renderFile component
+    let entity_path: Option<PathBuf> = w.components.get(&eid).and_then(|comps| {
+        comps.iter().find_map(|c| {
+            if c.component_type() == "renderFile" {
+                if let serde_json::Value::Object(map) = c.settings() {
+                    map.get("targetPath").and_then(|v| v.as_str()).map(PathBuf::from)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+    });
+
+    // Get the new parent's directory path
+    let parent_path: Option<PathBuf> = w.components.get(&new_pid).and_then(|comps| {
+        comps.iter().find_map(|c| {
+            if c.component_type() == "renderFile" {
+                if let serde_json::Value::Object(map) = c.settings() {
+                    map.get("targetPath").and_then(|v| v.as_str()).map(PathBuf::from)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+    });
+
+    // Move the actual file on disk
+    if let (Some(src), Some(dest_dir)) = (&entity_path, &parent_path) {
+        if src.exists() {
+            let file_name = src.file_name().ok_or_else(|| "Source path has no file name".to_string())?;
+            let dest = if dest_dir.is_dir() {
+                dest_dir.join(file_name)
+            } else {
+                // If the parent's renderFile path is a file, use its parent directory
+                let parent_dir = dest_dir.parent().ok_or_else(|| "Parent path has no parent directory".to_string())?;
+                parent_dir.join(file_name)
+            };
+
+            std::fs::rename(src, &dest).map_err(|e| {
+                format!("Failed to move file from {} to {}: {}", src.display(), dest.display(), e)
+            })?;
+
+            // Update the entity's renderFile component with the new path
+            let new_path = dest.to_string_lossy().to_string();
+            if let Some(comps) = w.components.get_mut(&eid) {
+                for comp in comps.iter_mut() {
+                    if comp.component_type() == "renderFile" {
+                        let mut settings = comp.settings();
+                        if let serde_json::Value::Object(ref mut map) = settings {
+                            map.insert("targetPath".to_string(), serde_json::json!(new_path));
+                        }
+                        comp.update_settings(settings);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Reparent in the ECS
+    w.parent_ids.insert(eid, new_pid);
+
+    // Persist
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    w.save(&conn).map_err(|e| e.to_string())?;
+
+    info!("Moved entity {} to parent {}", entity_id, new_parent_id);
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {

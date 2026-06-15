@@ -22,6 +22,13 @@ function createWorldStore() {
     getWorld(): World {
       return world;
     },
+
+    /// Refresh world state from backend.
+    async refreshFromBackend() {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const state = await invoke("get_world_state");
+      this.loadFromData(state as WorldData);
+    },
   };
 }
 

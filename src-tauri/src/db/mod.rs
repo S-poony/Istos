@@ -118,3 +118,28 @@ pub fn load_trove_path(conn: &Connection) -> Result<Option<String>> {
         .transpose()?;
     Ok(result)
 }
+
+/// Saves the root-level entity order.
+pub fn save_root_order(conn: &Connection, order_json: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('root_order', ?1)",
+        [order_json],
+    )?;
+    Ok(())
+}
+
+/// Loads the root-level entity order.
+pub fn load_root_order(conn: &Connection) -> Result<Option<Vec<u64>>> {
+    let mut stmt = conn.prepare("SELECT value FROM config WHERE key = 'root_order'")?;
+    let result = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .next()
+        .transpose()?;
+    match result {
+        Some(json) => {
+            let ids: Vec<u64> = serde_json::from_str(&json).unwrap_or_default();
+            Ok(Some(ids))
+        }
+        None => Ok(None),
+    }
+}

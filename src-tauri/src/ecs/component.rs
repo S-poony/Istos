@@ -126,6 +126,8 @@ pub struct GridSettings {
     pub gap: f64,
     /// Whether items can be dragged.
     pub draggable: bool,
+    /// Explicit ordering of child entity IDs (None = alphabetical).
+    pub order: Option<Vec<u64>>,
 }
 
 impl Default for GridSettings {
@@ -134,6 +136,7 @@ impl Default for GridSettings {
             columns: 4,
             gap: 8.0,
             draggable: false,
+            order: None,
         }
     }
 }

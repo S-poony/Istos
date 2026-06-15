@@ -19,6 +19,7 @@ export interface GridSettings {
   columns: number;
   gap: number;
   draggable: boolean;
+  order?: number[];
 }
 
 /// A component attached to an entity.
@@ -37,4 +38,5 @@ export interface EntityData {
 /// Snapshot of the entire world.
 export interface WorldData {
   entities: EntityData[];
+  rootOrder?: number[];
 }

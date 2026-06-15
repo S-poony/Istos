@@ -149,6 +149,7 @@ impl World {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldSnapshot {
     pub entities: Vec<EntitySnapshot>,
+    pub root_order: Option<Vec<u64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,8 +190,8 @@ impl From<&World> for WorldSnapshot {
             })
             .collect();
 
-        WorldSnapshot { entities }
-    }
+        WorldSnapshot { entities, root_order: None }
+}
 }
 
 /// Tauri managed state for the world.

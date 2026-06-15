@@ -35,7 +35,7 @@
     return `Entity #${entityId}`;
   });
 
-  let children = $derived($worldStore.getChildren(entityId));
+  let children = $derived($worldStore.getOrderedChildren(entityId));
 </script>
 
 <div

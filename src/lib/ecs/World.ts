@@ -151,4 +151,43 @@ export class World {
     }
     return { entities };
   }
+
+  /// Returns children ordered by the parent's grid component order settings, or falls back to sortEntities.
+  getOrderedChildren(parentId: EntityId): EntityId[] {
+    const children = this.getChildren(parentId);
+    const gridComp = this.getComponent(parentId, "grid");
+    const order = gridComp?.settings?.order as number[] | undefined;
+    if (order && Array.isArray(order) && order.length > 0) {
+      // Build a map for quick lookup
+      const orderMap = new Map<number, number>();
+      order.forEach((id, idx) => orderMap.set(id, idx));
+      // Sort: items in order first (by their position), then any unknowns alphabetically
+      const inOrder = children.filter(c => orderMap.has(c));
+      const notInOrder = children.filter(c => !orderMap.has(c));
+      inOrder.sort((a, b) => (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0));
+      return [...inOrder, ...this.sortEntities(notInOrder)];
+    }
+    return this.sortEntities(children);
+  }
+
+  /// Updates the explicit order of children for a grid entity.
+  reorderChildren(parentId: EntityId, orderedIds: EntityId[]): void {
+    const parentEntity = this.entities.get(parentId);
+    if (!parentEntity) return;
+    const comps = this.components.get(parentId);
+    if (!comps) return;
+    for (const comp of comps) {
+      if (comp.componentType === "grid") {
+        comp.settings = { ...comp.settings, order: orderedIds };
+        break;
+      }
+    }
+  }
+
+  /// Reparents an entity under a new parent.
+  reparentEntity(entityId: EntityId, newParentId: EntityId): void {
+    const entity = this.entities.get(entityId);
+    if (!entity) return;
+    entity.parentId = newParentId;
+  }
 }
