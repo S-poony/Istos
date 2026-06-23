@@ -18,6 +18,8 @@
     position: "before" | "after";
   } | null>(null);
 
+  let dragLeaveTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+
   /// Find the parent of an entity.
   function getParentId(id: EntityId): EntityId | null {
     const entity = $worldStore.entities.get(id);
@@ -51,17 +53,39 @@
     }
   }
 
+  /// Check if parentId is an ancestor of childId (or if parentId === childId).
+  function isAncestor(childId: EntityId, parentId: EntityId): boolean {
+    if (childId === parentId) return true;
+    let curr: EntityId | null = childId;
+    while (curr !== null) {
+      const pid = getParentId(curr);
+      if (pid === parentId) return true;
+      curr = pid;
+    }
+    return false;
+  }
+
   function handleDragOver(e: DragEvent, id: EntityId) {
-    if (draggedId === null || draggedId === id) {
+    // Cancel any pending dragleave timer
+    if (dragLeaveTimer) {
+      clearTimeout(dragLeaveTimer);
+      dragLeaveTimer = null;
+    }
+    if (draggedId === null || isAncestor(id, draggedId)) {
       dropTarget = null;
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
     if (e.dataTransfer) {
       e.dataTransfer.dropEffect = "move";
     }
 
-    const target = e.currentTarget as HTMLElement;
+    const currentEl = e.currentTarget as HTMLElement;
+    // Always use the .tree-node element for accurate rect calculation
+    const target = currentEl.classList.contains('tree-node-wrapper')
+      ? (currentEl.querySelector('.tree-node') as HTMLElement) || currentEl
+      : currentEl;
     const rect = target.getBoundingClientRect();
     const relY = e.clientY - rect.top;
     const ratio = relY / rect.height;
@@ -76,7 +100,12 @@
   }
 
   function handleDragLeave() {
-    dropTarget = null;
+    // Don't nullify immediately — drop event may fire next in same event-loop tick.
+    // Use a short timeout so handleDrop can see the correct dropTarget.
+    dragLeaveTimer = setTimeout(() => {
+      dropTarget = null;
+      dragLeaveTimer = null;
+    }, 100);
   }
 
   async function handleDrop(e: DragEvent, targetId: EntityId) {
@@ -98,17 +127,18 @@
       if (target.type === "into") {
         await invoke("move_entity", {
           entityId: sourceId,
-          newParentId: targetId,
+          newParentId: target.entityId,
         });
+        await worldStore.refreshFromBackend();
       } else if (target.type === "between") {
-        const targetParentId = getParentId(targetId);
+        const targetParentId = getParentId(target.entityId);
         const draggedParentId = getParentId(sourceId);
 
         if (targetParentId === draggedParentId) {
           // Same parent: reorder siblings
           const siblings = getSiblings(sourceId);
           const filtered = siblings.filter(id => id !== sourceId);
-          const targetIdx = filtered.indexOf(targetId);
+          const targetIdx = filtered.indexOf(target.entityId);
           const insertPos = target.position === "before" ? targetIdx : targetIdx + 1;
           const newOrder = [
             ...filtered.slice(0, insertPos),
@@ -131,7 +161,7 @@
             await worldStore.refreshFromBackend();
             // Now reorder within the new parent
             const targetSiblings = $worldStore.getChildren(targetParentId).filter(id => id !== sourceId);
-            const targetIdx = targetSiblings.indexOf(targetId);
+            const targetIdx = targetSiblings.indexOf(target.entityId);
             const insertPos = target.position === "before" ? targetIdx : targetIdx + 1;
             const newOrder = [
               ...targetSiblings.slice(0, insertPos),
@@ -146,7 +176,6 @@
         }
       }
 
-      await worldStore.refreshFromBackend();
     } catch (err) {
       console.error("Drag/drop failed:", err);
       alert(`Failed to reorder/move: ${err}`);

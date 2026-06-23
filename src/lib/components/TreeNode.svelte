@@ -114,7 +114,6 @@
   class="tree-node-wrapper"
   class:drop-before={dropBefore}
   class:drop-after={dropAfter}
-  ondragover={(e: DragEvent) => e.preventDefault()}
 >
   <div
     class="tree-node"

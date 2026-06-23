@@ -40,3 +40,12 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
   - *Mistake*: Rust `Option::None` serializes to `null` in JSON. If the TypeScript ECS parser only checks `parentId !== undefined`, it sets `parentId = null` on the entity. Subsequent checks checking strictly for `parentId === undefined` evaluate to `false` for all root entities, rendering nothing on the desktop.
   - *Solution*: Filter out `null` at deserialization (e.g. `parentId !== undefined && parentId !== null`) and use defensive checks like `parentId === undefined || parentId === null` in components and derived stores.
 
+- **Svelte 5 / jsdom Drag and Drop Testing with clientY and Event Bubbling**:
+  - *Mistake*: Placing drag/drop handlers (`ondragover`, `ondragleave`, `ondrop`) on parent wrapper elements (like `.tree-node-wrapper`) causes dragover events to bubble up from child nodes to parent/ancestor wrappers, overriding the active drop target and causing stop sign cursors. Also, jsdom lacks global `DragEvent` definitions and `clientY` mouse properties during test events, causing ratio calculations to result in `NaN` and failing layout assertions.
+  - *Solution*: Restrict drag/drop handlers exclusively to row elements (`.tree-node`) and call `e.stopPropagation()` in `handleDragOver` to prevent bubbling. In unit tests, use global `Event` instead of `DragEvent`, inject coordinates via `Object.defineProperty(event, 'clientY', { value })`, and use `await tick()` to let Svelte 5's asynchronous scheduler flush updates before asserting class lists.
+
+- **Tauri v2 HTML5 Drag-and-Drop Interception**:
+  - *Mistake*: In Tauri v2, the native OS/webview-level drag-and-drop handler is enabled by default (`dragDropEnabled: true`). This captures all dragover and drop events at the window/webview level, preventing the frontend's standard HTML5 drag-and-drop elements from working correctly and showing a system-wide "stop sign" cursor.
+  - *Solution*: Add `"dragDropEnabled": false` to your window configuration in `src-tauri/tauri.conf.json`. This tells Tauri not to capture drag-and-drop events at the native window level, allowing standard HTML5 webview elements to register and handle standard drag/drop events.
+
+

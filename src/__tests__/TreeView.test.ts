@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import '@testing-library/jest-dom';
+import { tick } from 'svelte';
 import { worldStore } from '../lib/stores/world';
 import { World } from '../lib/ecs/World';
 import { Component } from '../lib/ecs/Component';
@@ -407,5 +408,243 @@ describe('World ECS - Reorder and Reparent Operations', () => {
 
     expect(world.getChildren(1)).toEqual([11]);
     expect(world.getOrderedChildren(2)).toEqual([12, 21]);
+  });
+});
+
+
+/**
+ * Helper to create a minimal DataTransfer mock for jsdom.
+ * jsdom doesn't implement DataTransfer, so we build one.
+ */
+function createMockDataTransfer(): DataTransfer {
+  const data = {};
+  return {
+    dropEffect: 'none',
+    effectAllowed: 'none',
+    files: [],
+    items: [],
+    types: [],
+    getData(format) { return data[format] || ''; },
+    setData(format, value) { data[format] = value; },
+    clearData(format) { if (format) delete data[format]; else Object.keys(data).forEach(k => delete data[k]); },
+    setDragImage() {},
+  };
+}
+
+describe('TreeView - Drag and Drop Integration', () => {
+  let getBoundingClientRectSpy: any;
+
+  function fireDragOver(element: Element, clientY: number, dataTransfer: DataTransfer) {
+    const event = new Event('dragover', {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+    Object.defineProperty(event, 'clientY', { value: clientY });
+    element.dispatchEvent(event);
+  }
+
+  function fireDrop(element: Element, clientY: number, dataTransfer: DataTransfer) {
+    const event = new Event('drop', {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+    Object.defineProperty(event, 'clientY', { value: clientY });
+    element.dispatchEvent(event);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getBoundingClientRectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      top: 100,
+      left: 0,
+      bottom: 120,
+      right: 200,
+      width: 200,
+      height: 20,
+    } as DOMRect);
+    loadFixture({
+      entities: [
+        // Root folder 1 with two children
+        {
+          id: 10,
+          components: [
+            { componentType: 'grid', settings: { columns: 3, gap: 8, draggable: false } },
+            { componentType: 'renderFile', settings: { targetPath: '/FolderA', scale: 1, position: { x: 0, y: 0 } } },
+          ],
+        },
+        { id: 11, parentId: 10, components: [{ componentType: 'renderFile', settings: { targetPath: 'a.txt', scale: 1, position: { x: 0, y: 0 } } }] },
+        { id: 12, parentId: 10, components: [{ componentType: 'renderFile', settings: { targetPath: 'b.txt', scale: 1, position: { x: 0, y: 0 } } }] },
+
+        // Root folder 2 with one child
+        {
+          id: 20,
+          components: [
+            { componentType: 'grid', settings: { columns: 3, gap: 8, draggable: false } },
+            { componentType: 'renderFile', settings: { targetPath: '/FolderB', scale: 1, position: { x: 0, y: 0 } } },
+          ],
+        },
+        { id: 21, parentId: 20, components: [{ componentType: 'renderFile', settings: { targetPath: 'c.txt', scale: 1, position: { x: 0, y: 0 } } }] },
+
+        // Root file (no parent)
+        { id: 30, components: [{ componentType: 'renderFile', settings: { targetPath: 'standalone.md', scale: 1, position: { x: 0, y: 0 } } }] },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    getBoundingClientRectSpy.mockRestore();
+  });
+
+  it('should set dataTransfer on dragstart and clear on dragend', async () => {
+    const { container } = render(TreeView);
+
+    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
+    expect(standaloneNode).toBeInTheDocument();
+
+    const dt = createMockDataTransfer();
+
+    await fireEvent.dragStart(standaloneNode, { dataTransfer: dt });
+    expect(dt.getData('text/plain')).toBe('30');
+
+    await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
+  });
+
+  it('should show drop-into indicator when dragging over middle of a folder', async () => {
+    const { container } = render(TreeView);
+
+    const folderAToggle = container.querySelectorAll('.toggle')[0];
+    await fireEvent.click(folderAToggle);
+
+    const aNode = screen.getByText('a.txt').closest('.tree-node');
+    const folderANode = screen.getByText('FolderA').closest('.tree-node');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(aNode, { dataTransfer: dt });
+
+    const rect = folderANode.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    fireDragOver(folderANode, midY, dt);
+    await tick();
+
+    expect(folderANode.classList.contains('drop-into')).toBe(true);
+
+    await fireEvent.dragEnd(aNode, { dataTransfer: dt });
+  });
+
+  it('should show drop-before indicator when dragging over top of a node', async () => {
+    const { container } = render(TreeView);
+
+    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
+    const folderANode = screen.getByText('FolderA').closest('.tree-node');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(standaloneNode, { dataTransfer: dt });
+
+    const rect = folderANode.getBoundingClientRect();
+    const topY = rect.top + 2;
+    fireDragOver(folderANode, topY, dt);
+    await tick();
+
+    const wrapper = folderANode.closest('.tree-node-wrapper');
+    expect(wrapper.classList.contains('drop-before')).toBe(true);
+
+    await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
+  });
+
+  it('should invoke move_entity when dropping into a folder', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { container } = render(TreeView);
+
+    const toggles = container.querySelectorAll('.toggle');
+    await fireEvent.click(toggles[0]);
+
+    const aNode = screen.getByText('a.txt').closest('.tree-node');
+    const folderBNode = screen.getByText('FolderB').closest('.tree-node');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(aNode, { dataTransfer: dt });
+
+    const rect = folderBNode.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    fireDragOver(folderBNode, midY, dt);
+    fireDrop(folderBNode, midY, dt);
+
+    expect(invoke).toHaveBeenCalledWith('move_entity', {
+      entityId: 11,
+      newParentId: 20,
+    });
+
+    await fireEvent.dragEnd(aNode, { dataTransfer: dt });
+  });
+
+  it('should invoke reorder_children when dropping between siblings', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { container } = render(TreeView);
+
+    const toggles = container.querySelectorAll('.toggle');
+    await fireEvent.click(toggles[0]);
+
+    const aNode = screen.getByText('a.txt').closest('.tree-node');
+    const bNode = screen.getByText('b.txt').closest('.tree-node');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(aNode, { dataTransfer: dt });
+
+    const rect = bNode.getBoundingClientRect();
+    const bottomY = rect.bottom - 2;
+    fireDragOver(bNode, bottomY, dt);
+    fireDrop(bNode, bottomY, dt);
+
+    expect(invoke).toHaveBeenCalledWith('reorder_children', {
+      parentEntityId: 10,
+      orderedIds: [12, 11],
+    });
+
+    await fireEvent.dragEnd(aNode, { dataTransfer: dt });
+  });
+
+  it('should not invoke anything when dropping on self', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { container } = render(TreeView);
+
+    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(standaloneNode, { dataTransfer: dt });
+
+    const rect = standaloneNode.getBoundingClientRect();
+    fireDragOver(standaloneNode, rect.top + 10, dt);
+    fireDrop(standaloneNode, rect.top + 10, dt);
+
+    const moveCalls = invoke.mock.calls.filter(
+      (c) => c[0] === 'move_entity' || c[0] === 'reorder_children'
+    );
+    expect(moveCalls.length).toBe(0);
+
+    await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
+  });
+
+  it('should clear dropTarget indicators on dragend', async () => {
+    const { container } = render(TreeView);
+
+    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
+    const folderANode = screen.getByText('FolderA').closest('.tree-node');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(standaloneNode, { dataTransfer: dt });
+
+    const rect = folderANode.getBoundingClientRect();
+    fireDragOver(folderANode, rect.top + 2, dt);
+    await tick();
+
+    const wrapper = folderANode.closest('.tree-node-wrapper');
+    expect(wrapper.classList.contains('drop-before')).toBe(true);
+
+    await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
+    await tick();
+
+    expect(wrapper.classList.contains('drop-before')).toBe(false);
   });
 });
