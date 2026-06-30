@@ -100,6 +100,12 @@ pub fn open_trove_impl(
 
     info!("Processed {} files and {} directories", file_count, dir_count);
 
+    // Save trove path
+    crate::db::save_trove_path(conn, path).map_err(|e| {
+        error!("Failed to save trove path: {}", e);
+        format!("Failed to save trove path: {}", e)
+    })?;
+
     // Persist
     w.save(conn).map_err(|e| {
         error!("Failed to save world: {}", e);
@@ -223,21 +229,27 @@ pub fn reorder_children(
 ) -> Result<(), String> {
     let mut w = world.0.lock().map_err(|e| e.to_string())?;
     let parent_eid = EntityId::new(parent_entity_id);
-
-    if !w.entities.contains(&parent_eid) {
+    if parent_entity_id != 0 && !w.entities.contains(&parent_eid) {
         return Err(format!("Parent entity {} not found", parent_entity_id));
     }
 
     // Validate that all ordered_ids are actual children
-    let actual_children: Vec<u64> = w.components.iter()
-        .filter_map(|(eid, _)| {
-            if w.parent_ids.get(eid) == Some(&parent_eid) {
-                Some(eid.0)
-            } else {
-                None
-            }
-        })
-        .collect();
+    let actual_children: Vec<u64> = if parent_entity_id == 0 {
+        w.entities.all()
+            .filter(|eid| !w.parent_ids.contains_key(eid))
+            .map(|eid| eid.0)
+            .collect()
+    } else {
+        w.components.iter()
+            .filter_map(|(eid, _)| {
+                if w.parent_ids.get(eid) == Some(&parent_eid) {
+                    Some(eid.0)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
 
     for &oid in &ordered_ids {
         if !actual_children.contains(&oid) {
@@ -281,13 +293,14 @@ pub fn move_entity(
     new_parent_id: u64,
 ) -> Result<(), String> {
     let mut w = world.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
     let eid = EntityId::new(entity_id);
     let new_pid = EntityId::new(new_parent_id);
 
     if !w.entities.contains(&eid) {
         return Err(format!("Entity {} not found", entity_id));
     }
-    if !w.entities.contains(&new_pid) {
+    if new_parent_id != 0 && !w.entities.contains(&new_pid) {
         return Err(format!("New parent entity {} not found", new_parent_id));
     }
 
@@ -307,19 +320,25 @@ pub fn move_entity(
     });
 
     // Get the new parent's directory path
-    let parent_path: Option<PathBuf> = w.components.get(&new_pid).and_then(|comps| {
-        comps.iter().find_map(|c| {
-            if c.component_type() == "renderFile" {
-                if let serde_json::Value::Object(map) = c.settings() {
-                    map.get("targetPath").and_then(|v| v.as_str()).map(PathBuf::from)
+    let parent_path: Option<PathBuf> = if new_parent_id == 0 {
+        crate::db::load_trove_path(&conn)
+            .map_err(|e| e.to_string())?
+            .map(PathBuf::from)
+    } else {
+        w.components.get(&new_pid).and_then(|comps| {
+            comps.iter().find_map(|c| {
+                if c.component_type() == "renderFile" {
+                    if let serde_json::Value::Object(map) = c.settings() {
+                        map.get("targetPath").and_then(|v| v.as_str()).map(PathBuf::from)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            } else {
-                None
-            }
+            })
         })
-    });
+    };
 
     // Move the actual file on disk
     if let (Some(src), Some(dest_dir)) = (&entity_path, &parent_path) {
@@ -355,10 +374,13 @@ pub fn move_entity(
     }
 
     // Reparent in the ECS
-    w.parent_ids.insert(eid, new_pid);
+    if new_parent_id == 0 {
+        w.parent_ids.remove(&eid);
+    } else {
+        w.parent_ids.insert(eid, new_pid);
+    }
 
     // Persist
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
     w.save(&conn).map_err(|e| e.to_string())?;
 
     info!("Moved entity {} to parent {}", entity_id, new_parent_id);

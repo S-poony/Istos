@@ -647,4 +647,48 @@ describe('TreeView - Drag and Drop Integration', () => {
 
     expect(wrapper.classList.contains('drop-before')).toBe(false);
   });
+
+  it('should invoke move_entity with newParentId: 0 when dropping a nested file onto the root container', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { container } = render(TreeView);
+
+    const toggles = container.querySelectorAll('.toggle');
+    await fireEvent.click(toggles[0]);
+
+    const aNode = screen.getByText('a.txt').closest('.tree-node');
+    const rootContainer = container.querySelector('.tree-root');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(aNode, { dataTransfer: dt });
+    await fireEvent.drop(rootContainer, { dataTransfer: dt });
+
+    expect(invoke).toHaveBeenCalledWith('move_entity', {
+      entityId: 11,
+      newParentId: 0,
+    });
+  });
+
+  it('should invoke move_entity with newParentId: 0 when dropping a nested file between root-level siblings', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { container } = render(TreeView);
+
+    const toggles = container.querySelectorAll('.toggle');
+    await fireEvent.click(toggles[0]);
+
+    const aNode = screen.getByText('a.txt').closest('.tree-node');
+    const folderBNode = screen.getByText('FolderB').closest('.tree-node');
+
+    const dt = createMockDataTransfer();
+    await fireEvent.dragStart(aNode, { dataTransfer: dt });
+
+    const rect = folderBNode.getBoundingClientRect();
+    const topY = rect.top + 2;
+    fireDragOver(folderBNode, topY, dt);
+    fireDrop(folderBNode, topY, dt);
+
+    expect(invoke).toHaveBeenCalledWith('move_entity', {
+      entityId: 11,
+      newParentId: 0,
+    });
+  });
 });
