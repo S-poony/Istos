@@ -7,7 +7,7 @@
 </script>
 
 <button class="mode-toggle" class:active={$editMode} onclick={toggleMode}>
-  {$editMode ? "🛠️ Edit Mode" : "▶️ Live Mode"}
+  {$editMode ? "Edit Mode" : "Live Mode"}
 </button>
 
 <style>

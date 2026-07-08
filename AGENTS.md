@@ -66,4 +66,9 @@ To make it easier for future agents to understand the project architecture and d
   - *Mistake*: In Tauri v2, the native OS/webview-level drag-and-drop handler is enabled by default (`dragDropEnabled: true`). This captures all dragover and drop events at the window/webview level, preventing the frontend's standard HTML5 drag-and-drop elements from working correctly and showing a system-wide "stop sign" cursor.
   - *Solution*: Add `"dragDropEnabled": false` to your window configuration in `src-tauri/tauri.conf.json`. This tells Tauri not to capture drag-and-drop events at the native window level, allowing standard HTML5 webview elements to register and handle standard drag/drop events.
 
+- **Instant Edit/Live Mode Switching (DOM Keep-Alive)**:
+  - *Mistake*: Using conditional blocks `{#if $editMode}` to toggle between the TreeView (Edit Mode) and Desktop (Live Mode) completely unmounts and destroys all rendered files/folders. When switching back to Live Mode on folders with many items or heavy files (images/video/text), this unmounting causes significant delays as Svelte is forced to rebuild the entire DOM tree and refetch/reload all media.
+  - *Solution*: Render both views simultaneously in the DOM (under `.tree-view-container` and `.desktop-container` wrappers) and toggle their visibility visually with Svelte class bindings `class:hidden={...}` and a CSS `.hidden { display: none !important; }` helper. This ensures instant mode toggles while retaining full store reactivity.
+
+
 

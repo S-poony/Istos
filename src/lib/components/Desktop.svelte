@@ -4,24 +4,22 @@
   import TreeView from "./TreeView.svelte";
 </script>
 
-{#if $editMode}
-  <div class="tree-view-container">
-    <TreeView />
-  </div>
-{:else}
-  <div class="desktop-container">
-    {#each $rootEntities as entityId (entityId)}
-      <RenderEntity {entityId} />
-    {/each}
+<div class="tree-view-container" class:hidden={!$editMode}>
+  <TreeView />
+</div>
 
-    {#if $rootEntities.length === 0}
-      <div class="empty-state">
-        <p>No desktop entities found.</p>
-        <p class="hint">Add a grid component to an entity to get started.</p>
-      </div>
-    {/if}
-  </div>
-{/if}
+<div class="desktop-container" class:hidden={$editMode}>
+  {#each $rootEntities as entityId (entityId)}
+    <RenderEntity {entityId} />
+  {/each}
+
+  {#if $rootEntities.length === 0}
+    <div class="empty-state">
+      <p>No desktop entities found.</p>
+      <p class="hint">Add a grid component to an entity to get started.</p>
+    </div>
+  {/if}
+</div>
 
 <style>
   .desktop-container {
@@ -50,5 +48,9 @@
     width: 100%;
     height: 100%;
     overflow: auto;
+  }
+
+  .hidden {
+    display: none !important;
   }
 </style>
