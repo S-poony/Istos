@@ -11,6 +11,24 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
 - **Component settings UI panels**:
   - Implement configurable inputs (text fields, checkboxes, sliders) to adjust component properties in real-time.
 
+### Plan: Centralization of Design Decisions
+
+To make it easier for future agents to understand the project architecture and design conventions, we propose creating a unified `DESIGN.md` in the project root. This document will serve as the single source of truth for:
+1. **Layout & Grid System Guidelines**:
+   - Explanation of the dynamic CSS Grid system column layout (`minmax(0, 1fr)`).
+   - Rules for dynamic column scaling when children counts are below the maximum (e.g. `children.length < columns`).
+2. **Media Rendering & Aspect Ratio Spanning Rules**:
+   - How orientation is detected (landscape vs portrait).
+   - How aspect ratios and height limits prevent layout blowups.
+3. **ECS Entity Parenting Conventions**:
+   - The generic `.entity-wrapper` container design (no folder-specific icon assumptions).
+   - Avoiding null-checking serialization pitfalls for root entities (`parentId === null` vs `undefined`).
+4. **Tauri Native Configurations & Frontend D&D**:
+   - Explaining why `"dragDropEnabled": false` is required in `tauri.conf.json` to allow frontend drag-and-drop.
+5. **Drag and Drop Event Handling**:
+   - Event bubbling isolation (`e.stopPropagation()` in TreeView).
+   - Unit testing workarounds under jsdom (e.g. mocking DragEvent, injecting client coordinates).
+
 ### Agent Log & Learnings
 
 - **CSS Grid Column Overflow with Nested Layouts**:

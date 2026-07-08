@@ -36,6 +36,9 @@
   });
 
   let children = $derived($worldStore.getOrderedChildren(entityId));
+  let gridColumns = $derived(
+    children.length > 0 && children.length < columns ? children.length : columns
+  );
 </script>
 
 <div
@@ -48,7 +51,7 @@
   </div>
   <div
     class="grid-container"
-    style="--grid-columns: {columns}; --grid-gap: {gap}px;"
+    style="--grid-columns: {gridColumns}; --grid-gap: {gap}px;"
   >
     {#each children as childId (childId)}
       <RenderEntity entityId={childId} />
