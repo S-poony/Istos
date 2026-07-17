@@ -31,6 +31,10 @@ To make it easier for future agents to understand the project architecture and d
 
 ### Agent Log & Learnings
 
+- **Tauri Dev Command Infinite Loops**:
+  - *Mistake*: Setting `"dev": "tauri dev"` in `package.json` while `tauri.conf.json` has `"beforeDevCommand": "npm run dev"` causes a recursive loop that hangs the developer machine, as `tauri dev` spins up `npm run dev` which calls `tauri dev` again.
+  - *Solution*: Keep `"dev": "vite"` for starting the frontend server (the `beforeDevCommand`), and register a separate script like `"start": "tauri dev"` for launching both concurrently.
+
 - **CSS Grid Column Overflow with Nested Layouts**:
   - *Mistake*: Using `grid-template-columns: repeat(N, 1fr)` inside nested layout containers causes horizontal overflow on the right of the page. This happens because `1fr` is shorthand for `minmax(auto, 1fr)`, which prevents columns from shrinking below the minimum content size of their children (such as nested grids).
   - *Solution*: Use `grid-template-columns: repeat(N, minmax(0, 1fr))` to allow columns to shrink to fit the parent's actual width boundaries, resolving the layout overflow cleanly.

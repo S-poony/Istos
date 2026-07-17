@@ -5,6 +5,13 @@
 DeskShell is a desktop shell that improves on the desktop concept by treating folders and files as an **Entity Component System (ECS)**, allowing special rendering attributes and custom layouts.  
 Built with **Svelte + TypeScript** (frontend) and **Rust** (backend via **Tauri v2**), with **SQLite** for persistence.
 
+### Development Launch
+
+To launch the application in development mode (which starts the Vite dev server and the Tauri window simultaneously), run:
+```bash
+npm start
+```
+
 The system treats all files as entities that can be parents of other entities, enabling complex media combinations (e.g., images arranged in time create diaporamas with music and subtitles). Changes to the entity architecture translate to the OS file system where possible.
 
 The goal is to allow users to create custom static websites directly from their computer files, with an **edit mode** for configuring entity architecture and component settings, and a **live mode** for navigating the resulting website.
@@ -48,9 +55,8 @@ deskshell/
 │   │   ├── stores/             # Svelte stores
 │   │   │   └── world.ts        # Reactive world state
 │   │   └── types.ts            # Shared TypeScript types
-│   ├── routes/
-│   │   ├── +layout.svelte      # App layout (mode toggle, global styles)
-│   │   └── +page.svelte        # Main page (renders Desktop)
+│   ├── App.svelte              # Root component (renders header & Desktop)
+│   ├── main.ts                 # Main entry point (mounts App.svelte)
 │   ├── app.html
 │   └── app.css
 ├── package.json
@@ -162,9 +168,10 @@ deskshell/
 ### Step 6: Svelte UI (skeleton)
 - `Desktop.svelte`: Root component, renders the grid of entities.
 - `Grid.svelte`: CSS Grid layout for child entities.
-- `RenderFile.svelte`: Renders a file (image preview for now, placeholder for other types).
+- `RenderFile.svelte`: Renders a file (image preview, video, audio, text, markdown, pdf).
 - `ModeToggle.svelte`: Switch between edit mode and live mode.
-- `+page.svelte`: Loads world state, renders Desktop.
+- `App.svelte`: Root component that loads world state, renders Desktop, and header controls.
+- `main.ts`: Main entry point to mount Svelte.
 
 ### Step 7: Wire everything together
 - On mount, frontend calls `invoke('get_world_state')` to load initial data.
