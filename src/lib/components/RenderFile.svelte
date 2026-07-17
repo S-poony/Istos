@@ -1,6 +1,8 @@
 <script lang="ts">
   import { editMode, worldStore } from "../stores/world";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import RenderMarkdown from "./RenderMarkdown.svelte";
+  import RenderPdf from "./RenderPdf.svelte";
 
   interface Props {
     entityId: number;
@@ -36,6 +38,14 @@
     /\.(txt|md|json|js|ts|csv|html|css|rs|yaml|yml|xml|log|ini|cfg)$/i.test(displayName)
   );
 
+  let isMarkdown = $derived(
+    /\.md$/i.test(displayName)
+  );
+
+  let isPdf = $derived(
+    /\.pdf$/i.test(displayName)
+  );
+
   let mediaSrc = $derived.by(() => {
     if (targetPath) {
       try {
@@ -54,7 +64,7 @@
 
   let computedOrientation = $derived.by(() => {
     if (isAudio) return 'landscape';
-    if (isText) return 'portrait';
+    if (isText || isPdf) return 'portrait';
     return orientation;
   });
 
@@ -80,7 +90,7 @@
   }
 
   $effect(() => {
-    if (isText) {
+    if (isText || isPdf) {
       orientation = 'portrait';
     }
   });
@@ -162,10 +172,16 @@
       <track kind="captions">
       Your browser does not support the video element.
     </video>
+  {:else if isPdf}
+    <RenderPdf {mediaSrc} displayName={displayName} />
   {:else if isText}
-    <div class="text-content">
-      <pre>{textContent}</pre>
-    </div>
+    {#if isMarkdown}
+      <RenderMarkdown source={textContent} />
+    {:else}
+      <div class="text-content">
+        <pre>{textContent}</pre>
+      </div>
+    {/if}
   {:else}
     <div class="file-placeholder">
       <span class="file-icon">📄</span>

@@ -13,7 +13,10 @@
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
-    "@tauri-apps/plugin-shell": "^2.0.0"
+    "@tauri-apps/plugin-shell": "^2.0.0",
+    "dompurify": "^3.4.11",
+    "marked": "^18.0.5",
+    "pdfjs-dist": "^6.1.200"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
@@ -21,6 +24,7 @@
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/svelte": "^5.0.0",
     "@tsconfig/svelte": "^5.0.0",
+    "@types/dompurify": "^3.0.5",
     "@vitest/ui": "^4.1.7",
     "jsdom": "^25.0.0",
     "svelte": "^5.0.0",

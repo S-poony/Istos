@@ -70,5 +70,14 @@ To make it easier for future agents to understand the project architecture and d
   - *Mistake*: Using conditional blocks `{#if $editMode}` to toggle between the TreeView (Edit Mode) and Desktop (Live Mode) completely unmounts and destroys all rendered files/folders. When switching back to Live Mode on folders with many items or heavy files (images/video/text), this unmounting causes significant delays as Svelte is forced to rebuild the entire DOM tree and refetch/reload all media.
   - *Solution*: Render both views simultaneously in the DOM (under `.tree-view-container` and `.desktop-container` wrappers) and toggle their visibility visually with Svelte class bindings `class:hidden={...}` and a CSS `.hidden { display: none !important; }` helper. This ensures instant mode toggles while retaining full store reactivity.
 
+- **PowerShell Statement Separators on Windows**:
+  - *Mistake*: Running concatenated npm installation commands like `npm install A && npm install B` in PowerShell fails because `&&` is not a valid statement separator in legacy PowerShell versions.
+  - *Solution*: Use `;` as a statement separator, or install all packages in a single command, e.g. `npm install A B`.
 
+- **Vitest Hoisted `vi.mock` Variable Access**:
+  - *Mistake*: Using variables like `mockPdfDoc` declared in the test file scope inside the `vi.mock()` factory block fails with `ReferenceError: Cannot access 'mockPdfDoc' before initialization` since `vi.mock` calls are hoisted to the very top of the file before variables are declared.
+  - *Solution*: Wrap shared mock variables inside `vi.hoisted()` and destructure them in the outer scope, which hoists them together with the mocks.
 
+- **`DOMMatrix` / Canvas Missing in Node/JSDOM Environments**:
+  - *Mistake*: Importing PDF.js (`pdfjs-dist`) inside components tested under JSDOM/Node environment crashes during module load with `ReferenceError: DOMMatrix is not defined`, because PDF.js references `DOMMatrix` globally at the module level.
+  - *Solution*: Define a minimal polyfill for `DOMMatrix` and dummy canvas `getContext` functions in a Vitest `setupFiles` file (e.g. `setup.ts`), and register it under `test.setupFiles` in `vite.config.ts`.
