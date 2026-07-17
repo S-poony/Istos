@@ -13,7 +13,7 @@
 
   let { mediaSrc, displayName }: Props = $props();
 
-  let pdfDoc = $state<any>(null);
+  let pdfDoc = $state.raw<any>(null);
   let pageNum = $state(1);
   let numPages = $state(0);
   let scale = $state(1.0);
@@ -22,7 +22,7 @@
   let error = $state<string | null>(null);
 
   let canvasElement = $state<HTMLCanvasElement | null>(null);
-  let renderTask = $state<any>(null);
+  let renderTask: any = null;
   let pageInputVal = $state("1");
 
   // Keep page input in sync with current page number
@@ -60,7 +60,7 @@
     pageNum = 1;
     pdfDoc = null;
     try {
-      const loadingTask = pdfjsLib.getDocument(src);
+      const loadingTask = pdfjsLib.getDocument({ url: src });
       const doc = await loadingTask.promise;
       pdfDoc = doc;
       numPages = doc.numPages;

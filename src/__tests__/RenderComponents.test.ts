@@ -37,8 +37,13 @@ vi.mock('pdfjs-dist', () => {
     GlobalWorkerOptions: {
       workerSrc: '',
     },
-    getDocument: vi.fn().mockReturnValue({
-      promise: Promise.resolve(mockPdfDoc),
+    getDocument: vi.fn().mockImplementation((params) => {
+      if (!params || typeof params !== 'object' || (!params.url && !params.data && !params.range)) {
+        throw new Error('getDocument - expected either `data`, `range`, or `url` parameter.');
+      }
+      return {
+        promise: Promise.resolve(mockPdfDoc),
+      };
     }),
   };
 });
