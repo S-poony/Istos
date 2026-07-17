@@ -23,6 +23,7 @@
 
   let canvasElement = $state<HTMLCanvasElement | null>(null);
   let renderTask: any = null;
+  let activeLoadingTask: any = null;
   let pageInputVal = $state("1");
 
   // Keep page input in sync with current page number
@@ -36,8 +37,13 @@
       loadPdf(mediaSrc);
     }
     return () => {
+      if (activeLoadingTask) {
+        activeLoadingTask.destroy();
+        activeLoadingTask = null;
+      }
       if (pdfDoc) {
         pdfDoc.destroy();
+        pdfDoc = null;
       }
     };
   });
@@ -45,7 +51,7 @@
   // Render PDF page when document, page number, or scale changes
   $effect(() => {
     if (pdfDoc && canvasElement) {
-      renderPage();
+      renderPage(pageNum, scale);
     }
     return () => {
       if (renderTask) {
@@ -59,25 +65,40 @@
     error = null;
     pageNum = 1;
     pdfDoc = null;
+
+    if (activeLoadingTask) {
+      activeLoadingTask.destroy();
+      activeLoadingTask = null;
+    }
+
+    const currentTask = pdfjsLib.getDocument({ url: src });
+    activeLoadingTask = currentTask;
+
     try {
-      const loadingTask = pdfjsLib.getDocument({ url: src });
-      const doc = await loadingTask.promise;
-      pdfDoc = doc;
-      numPages = doc.numPages;
+      const doc = await currentTask.promise;
+      if (activeLoadingTask === currentTask) {
+        pdfDoc = doc;
+        numPages = doc.numPages;
+      }
     } catch (e: any) {
-      console.error("Failed to load PDF:", e);
-      error = e instanceof Error ? e.message : String(e);
+      if (activeLoadingTask === currentTask) {
+        console.error("Failed to load PDF:", e);
+        error = e instanceof Error ? e.message : String(e);
+      }
     } finally {
+      if (activeLoadingTask === currentTask) {
+        activeLoadingTask = null;
+      }
       loading = false;
     }
   }
 
-  async function renderPage() {
+  async function renderPage(targetPage: number, targetScale: number) {
     if (!pdfDoc || !canvasElement) return;
     rendering = true;
     try {
-      const page = await pdfDoc.getPage(pageNum);
-      const viewport = page.getViewport({ scale });
+      const page = await pdfDoc.getPage(targetPage);
+      const viewport = page.getViewport({ scale: targetScale });
       const context = canvasElement.getContext("2d");
       if (!context) return;
 
@@ -413,5 +434,76 @@
     min-width: 36px;
     text-align: center;
     color: var(--text-secondary);
+  }
+
+  /* Container query responsive toolbar */
+  .pdf-viewer-container {
+    container-type: inline-size;
+  }
+
+  @container (max-width: 350px) {
+    .pdf-toolbar {
+      gap: 8px;
+      padding: 6px 8px;
+    }
+
+    .toolbar-section {
+      gap: 4px;
+    }
+
+    .toolbar-btn {
+      width: 24px;
+      height: 24px;
+      font-size: 10px;
+    }
+
+    .page-input {
+      width: 30px;
+      height: 22px;
+      font-size: 11px;
+    }
+
+    .zoom-level {
+      font-size: 11px;
+      min-width: 30px;
+    }
+  }
+
+  @container (max-width: 250px) {
+    .toolbar-section.zoom .zoom-level {
+      display: none;
+    }
+  }
+
+  @container (max-width: 150px) {
+    .pdf-toolbar {
+      gap: 4px;
+      padding: 4px;
+    }
+
+    .toolbar-divider,
+    .toolbar-section.zoom {
+      display: none;
+    }
+
+    .toolbar-section.navigation {
+      gap: 4px;
+    }
+
+    .toolbar-btn {
+      width: 22px;
+      height: 22px;
+      font-size: 9px;
+    }
+
+    .page-input {
+      width: 26px;
+      height: 20px;
+      font-size: 10px;
+    }
+
+    .page-total {
+      font-size: 10px;
+    }
   }
 </style>

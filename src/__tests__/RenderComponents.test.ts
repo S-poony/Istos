@@ -43,6 +43,7 @@ vi.mock('pdfjs-dist', () => {
       }
       return {
         promise: Promise.resolve(mockPdfDoc),
+        destroy: vi.fn(),
       };
     }),
   };
@@ -181,7 +182,7 @@ describe('Integration inside RenderFile.svelte', () => {
       ok: true,
       text: () => Promise.resolve(mockMarkdown)
     };
-    global.fetch = vi.fn().mockResolvedValue(mockResponse as Response);
+    globalThis.fetch = vi.fn().mockResolvedValue(mockResponse as Response);
 
     render(RenderFile, { entityId: 1, targetPath: 'notes.md', scale: 1, position: { x: 0, y: 0 } });
 
