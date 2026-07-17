@@ -43,3 +43,12 @@ if (typeof HTMLCanvasElement !== 'undefined') {
     return null;
   };
 }
+
+// Mock ResizeObserver for jsdom
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+globalThis.ResizeObserver = ResizeObserverMock as any;

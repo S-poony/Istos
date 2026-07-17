@@ -25,6 +25,9 @@
   let renderTask: any = null;
   let activeLoadingTask: any = null;
   let pageInputVal = $state("1");
+  let containerWidth = $state(0);
+  let baseScale = $state(1.0); // Scale that fits PDF width to container
+  let viewportElement = $state<HTMLDivElement | null>(null);
 
   // Keep page input in sync with current page number
   $effect(() => {
@@ -48,6 +51,13 @@
     };
   });
 
+  // Calculate fit scale when container width changes
+  $effect(() => {
+    if (pdfDoc && containerWidth > 0) {
+      calculateFitScale();
+    }
+  });
+
   // Render PDF page when document, page number, or scale changes
   $effect(() => {
     if (pdfDoc && canvasElement) {
@@ -58,6 +68,15 @@
         renderTask.cancel();
       }
     };
+  });
+
+  // Set up resize observer
+  onMount(() => {
+    if (viewportElement) {
+      const resizeObserver = new ResizeObserver(handleResize);
+      resizeObserver.observe(viewportElement);
+      return () => resizeObserver.disconnect();
+    }
   });
 
   async function loadPdf(src: string) {
@@ -124,6 +143,24 @@
     }
   }
 
+  function calculateFitScale() {
+    if (!pdfDoc || !containerWidth) return;
+    pdfDoc.getPage(1).then((page: any) => {
+      const viewport = page.getViewport({ scale: 1.0 });
+      const availableWidth = containerWidth - 32; // subtract padding
+      if (availableWidth > 0 && viewport.width > 0) {
+        baseScale = availableWidth / viewport.width;
+        scale = baseScale;
+      }
+    });
+  }
+
+  function handleResize(entries: ResizeObserverEntry[]) {
+    for (const entry of entries) {
+      containerWidth = entry.contentRect.width;
+    }
+  }
+
   function handlePrevPage() {
     if (pageNum > 1) {
       pageNum--;
@@ -146,23 +183,27 @@
   }
 
   function handleZoomIn() {
-    if (scale < 3.0) {
-      scale = Math.min(3.0, scale + 0.25);
+    const newScale = scale + 0.25;
+    const maxScale = baseScale * 3; // Allow up to 3x fit-width
+    if (newScale <= maxScale) {
+      scale = newScale;
     }
   }
 
   function handleZoomOut() {
-    if (scale > 0.5) {
-      scale = Math.max(0.5, scale - 0.25);
+    const newScale = scale - 0.25;
+    const minScale = baseScale * 0.5; // Allow down to 50% of fit-width
+    if (newScale >= minScale) {
+      scale = newScale;
     }
   }
 
   function handleZoomReset() {
-    scale = 1.0;
+    scale = baseScale;
   }
 </script>
 
-<div class="pdf-viewer-container">
+<div class="pdf-viewer-container" bind:this={viewportElement}>
   <div class="pdf-viewport">
     {#if loading}
       <div class="loading-state">
@@ -219,16 +260,16 @@
       <div class="toolbar-section zoom">
         <button
           onclick={handleZoomOut}
-          disabled={scale <= 0.5}
+          disabled={scale <= baseScale * 0.5}
           title="Zoom Out"
           class="toolbar-btn"
         >
           －
         </button>
-        <span class="zoom-level">{Math.round(scale * 100)}%</span>
+        <span class="zoom-level">{Math.round((scale / baseScale) * 100)}%</span>
         <button
           onclick={handleZoomIn}
-          disabled={scale >= 3.0}
+          disabled={scale >= baseScale * 3}
           title="Zoom In"
           class="toolbar-btn"
         >
@@ -236,7 +277,7 @@
         </button>
         <button
           onclick={handleZoomReset}
-          disabled={scale === 1.0}
+          disabled={scale === baseScale}
           title="Reset Zoom"
           class="toolbar-btn reset-btn"
         >
@@ -288,13 +329,11 @@
     border-radius: 4px;
     background-color: #ffffff;
     display: inline-block;
-    max-width: 100%;
   }
 
   .pdf-canvas-wrapper canvas {
     display: block;
-    max-width: 100%;
-    height: auto !important; /* Let width scale the canvas height */
+    height: auto;
   }
 
   .loading-state,

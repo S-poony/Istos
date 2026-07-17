@@ -18,6 +18,8 @@
     onDrop: (e: DragEvent, id: EntityId) => void;
     onDragEnd: () => void;
     depth: number;
+    isAncestor: (childId: EntityId, parentId: EntityId) => boolean;
+    setDropTarget: (target: typeof dropTarget) => void;
   }
 
   let {
@@ -31,6 +33,8 @@
     onDrop,
     onDragEnd,
     depth,
+    isAncestor,
+    setDropTarget,
   }: Props = $props();
 
   let expanded = $state(false);
@@ -141,18 +145,38 @@
   </div>
 
   {#if expanded && (folder || orderedChildren.length > 0)}
-    <div class="children">
+    <div
+      class="children"
+      class:drop-into={dropInto}
+      ondragover={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (draggedId !== null && !isAncestor(id, draggedId)) {
+          setDropTarget({ type: "into", entityId: id, position: "after" });
+        }
+      }}
+      ondragleave={() => {
+        setDropTarget(null);
+      }}
+      ondrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDrop(e, id);
+      }}
+    >
       {#each orderedChildren as childId (childId)}
         <TreeNode
           id={childId}
           {draggedId}
           {dropTarget}
           {isFolder}
+          {isAncestor}
           {onDragStart}
           {onDragOver}
           {onDragLeave}
           {onDrop}
           {onDragEnd}
+          {setDropTarget}
           depth={depth + 1}
         />
       {/each}

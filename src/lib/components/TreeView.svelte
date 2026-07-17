@@ -18,6 +18,11 @@
     position: "before" | "after";
   } | null>(null);
 
+
+  function setDropTarget(target: typeof dropTarget) {
+    dropTarget = target;
+  }
+
   let dragLeaveTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 
   /// Find the parent of an entity.
@@ -81,16 +86,12 @@
       e.dataTransfer.dropEffect = "move";
     }
 
-    const currentEl = e.currentTarget as HTMLElement;
-    // Always use the .tree-node element for accurate rect calculation
-    const target = currentEl.classList.contains('tree-node-wrapper')
-      ? (currentEl.querySelector('.tree-node') as HTMLElement) || currentEl
-      : currentEl;
+    const target = e.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
     const relY = e.clientY - rect.top;
     const ratio = relY / rect.height;
 
-    if (isFolder(id) && ratio > 0.25 && ratio < 0.75) {
+    if (isFolder(id) && ratio > 0.10 && ratio < 0.90) {
       dropTarget = { type: "into", entityId: id, position: "after" };
     } else if (ratio < 0.5) {
       dropTarget = { type: "between", entityId: id, position: "before" };
@@ -227,7 +228,8 @@
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onDragEnd={handleDragEnd}
-      depth={0}
+      isAncestor={isAncestor}
+      setDropTarget={setDropTarget}
     />
   {/each}
 
