@@ -103,7 +103,7 @@
     if (!next || !current.contains(next)) dropTarget = null;
   }
 
-  async function handleDrop(e: DragEvent, targetId: EntityId, explicitTarget?: DropTarget) {
+  async function handleDrop(e: DragEvent, targetId: EntityId, explicitTarget?: DropTarget | null) {
     e.preventDefault();
     e.stopPropagation();
 
