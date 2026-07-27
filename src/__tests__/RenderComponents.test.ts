@@ -157,6 +157,17 @@ describe('RenderPdf Component', () => {
     expect(screen.getByText('100%')).toBeInTheDocument();
     expect(zoomResetBtn).toBeDisabled();
   });
+  it('does not throw when a PDF object lacks a destroy method during teardown', async () => {
+    const { unmount } = render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+
+    delete (mockPdfDoc as any).destroy;
+    expect(() => unmount()).not.toThrow();
+    (mockPdfDoc as any).destroy = mockDestroy;
+  });
+
 });
 
 describe('Integration inside RenderFile.svelte', () => {

@@ -85,3 +85,12 @@ To make it easier for future agents to understand the project architecture and d
 - **`DOMMatrix` / Canvas Missing in Node/JSDOM Environments**:
   - *Mistake*: Importing PDF.js (`pdfjs-dist`) inside components tested under JSDOM/Node environment crashes during module load with `ReferenceError: DOMMatrix is not defined`, because PDF.js references `DOMMatrix` globally at the module level.
   - *Solution*: Define a minimal polyfill for `DOMMatrix` and dummy canvas `getContext` functions in a Vitest `setupFiles` file (e.g. `setup.ts`), and register it under `test.setupFiles` in `vite.config.ts`.
+
+
+- **Filesystem Move Path Rewriting on Windows**:
+  - *Mistake*: Rewriting the moved entity's own path with `destination.join(suffix)` when `suffix` is empty appends a trailing separator on Windows. A file path then looks like a directory path, fails `exists()` on subsequent moves, and may display as a full path in the tree.
+  - *Solution*: Use the exact destination when the stripped suffix is empty; only join non-empty descendant suffixes. Normalize legacy trailing separators when resolving stored paths and deriving display names.
+
+- **Rust Formatting Tool Availability**:
+  - *Mistake*: Running `cargo fmt -- --check && cargo test` assumed the `rustfmt` component was installed, so the command stopped before tests ran.
+  - *Solution*: Run `cargo test` separately when formatting tooling is unavailable. Install it later with `rustup component add rustfmt` if formatting checks are required.

@@ -15,6 +15,7 @@
 
   let draggedId = $state<EntityId | null>(null);
   let dropTarget = $state<DropTarget | null>(null);
+  let dragError = $state<string | null>(null);
 
 
   function setDropTarget(target: typeof dropTarget) {
@@ -46,6 +47,9 @@
     return $worldStore.getComponent(id, "grid") !== undefined;
   }
 
+  function errorText(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
   function handleDragStart(e: DragEvent, id: EntityId) {
     draggedId = id;
     if (e.dataTransfer) {
@@ -106,6 +110,7 @@
   async function handleDrop(e: DragEvent, targetId: EntityId, explicitTarget?: DropTarget | null) {
     e.preventDefault();
     e.stopPropagation();
+    dragError = null;
 
     const sourceId = draggedId;
     const target = explicitTarget ?? getDropTarget(e, targetId);
@@ -155,7 +160,7 @@
       await worldStore.refreshFromBackend();
     } catch (err) {
       console.error("Drag/drop failed:", err);
-      alert(`Failed to reorder/move: ${err}`);
+      dragError = `Failed to reorder/move: ${errorText(err)}`;
       await worldStore.refreshFromBackend().catch(() => undefined);
     } finally {
       draggedId = null;
@@ -171,6 +176,7 @@
   async function handleRootDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    dragError = null;
     if (draggedId === null) return;
 
     const sourceId = draggedId;
@@ -188,12 +194,15 @@
       await worldStore.refreshFromBackend();
     } catch (err) {
       console.error("Root drop failed:", err);
-      alert(`Failed to move to root: ${err}`);
+      dragError = `Failed to move to root: ${errorText(err)}`;
     }
   }
 </script>
 
 <div class="tree-root" role="tree" tabindex="0" ondragover={(e) => e.preventDefault()} ondrop={handleRootDrop}>
+  {#if dragError}
+    <div class="drag-error" role="alert">{dragError}</div>
+  {/if}
   {#each rootIds as id (id)}
     <TreeNode
       {id}
@@ -226,6 +235,17 @@
     user-select: none;
     min-height: 100%;
   }
+
+  .drag-error {
+    margin: 0 12px 10px;
+    padding: 8px 10px;
+    border: 1px solid #ef4444;
+    border-radius: 6px;
+    color: #fecaca;
+    background: rgb(127 29 29 / 45%);
+    user-select: text;
+  }
+
 
   .empty-state {
     display: flex;

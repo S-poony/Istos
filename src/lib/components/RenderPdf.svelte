@@ -29,6 +29,18 @@
   let baseScale = $state(1.0); // Scale that fits PDF width to container
   let viewportElement = $state<HTMLDivElement | null>(null);
 
+  function safelyCall(task: any, method: "destroy" | "cancel") {
+    if (typeof task?.[method] !== "function") return;
+    try {
+      const result = task[method]();
+      if (result && typeof result.catch === "function") {
+        result.catch((e: unknown) => console.warn(`PDF ${method} failed:`, e));
+      }
+    } catch (e) {
+      console.warn(`PDF ${method} failed:`, e);
+    }
+  }
+
   // Keep page input in sync with current page number
   $effect(() => {
     pageInputVal = String(pageNum);
@@ -41,11 +53,11 @@
     }
     return () => {
       if (activeLoadingTask) {
-        activeLoadingTask.destroy();
+        safelyCall(activeLoadingTask, "destroy");
         activeLoadingTask = null;
       }
       if (pdfDoc) {
-        pdfDoc.destroy();
+        safelyCall(pdfDoc, "destroy");
         pdfDoc = null;
       }
     };
@@ -65,7 +77,8 @@
     }
     return () => {
       if (renderTask) {
-        renderTask.cancel();
+        safelyCall(renderTask, "cancel");
+        renderTask = null;
       }
     };
   });
@@ -86,7 +99,7 @@
     pdfDoc = null;
 
     if (activeLoadingTask) {
-      activeLoadingTask.destroy();
+      safelyCall(activeLoadingTask, "destroy");
       activeLoadingTask = null;
     }
 
@@ -125,7 +138,7 @@
       canvasElement.height = viewport.height;
 
       if (renderTask) {
-        renderTask.cancel();
+        safelyCall(renderTask, "cancel");
       }
 
       renderTask = page.render({

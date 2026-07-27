@@ -44,8 +44,9 @@
     const rf = $worldStore.getComponent(id, "renderFile");
     const path = rf?.settings?.targetPath as string | undefined;
     if (path) {
-      const parts = path.split(/[/\\]/);
-      return parts[parts.length - 1] || path;
+      const normalizedPath = path.replace(/[/\\]+$/, "");
+      const parts = normalizedPath.split(/[/\\]/);
+      return parts[parts.length - 1] || `Entity #${id}`;
     }
     return `Entity #${id}`;
   });

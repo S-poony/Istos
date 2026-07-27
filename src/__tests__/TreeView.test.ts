@@ -213,6 +213,32 @@ describe('TreeNode - Expand/Collapse', () => {
     expect(screen.getByText('report.txt')).toBeInTheDocument();
   });
 
+  it('should show a filename for a legacy path with a trailing separator', () => {
+    loadFixture({
+      entities: [{
+        id: 4,
+        components: [{ componentType: 'renderFile', settings: {
+          targetPath: 'C:\\Users\\Noé\\document.pdf\\', scale: 1, position: { x: 0, y: 0 }
+        } }],
+      }],
+    });
+
+    render(TreeNode, {
+      id: 4,
+      draggedId: null,
+      dropTarget: null,
+      isFolder,
+      onDragStart: vi.fn(),
+      onDragOver: vi.fn(),
+      onDragLeave: vi.fn(),
+      onDrop: vi.fn(),
+      onDragEnd: vi.fn(),
+      depth: 0,
+    });
+
+    expect(screen.getByText('document.pdf')).toBeInTheDocument();
+  });
+
   it('should show fallback name for entity without renderFile', () => {
     // Load an entity with no renderFile component
     loadFixture({

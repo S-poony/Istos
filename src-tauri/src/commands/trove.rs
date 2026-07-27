@@ -320,7 +320,15 @@ pub fn move_entity_impl(
     fn entity_path(w: &crate::ecs::World, entity: &EntityId) -> Option<PathBuf> {
         w.components.get(entity)?.iter().find_map(|component| {
             if component.component_type() != "renderFile" { return None; }
-            component.settings().get("targetPath")?.as_str().map(PathBuf::from)
+            let raw_path = component.settings().get("targetPath")?.as_str()?.to_string();
+            let path = PathBuf::from(&raw_path);
+            if path.exists() { return Some(path); }
+
+            // Recover paths persisted by older builds that appended a separator to files.
+            let trimmed = raw_path.trim_end_matches(['/', '\\']);
+            if trimmed.is_empty() { return Some(path); }
+            let normalized = PathBuf::from(trimmed);
+            Some(if normalized.exists() { normalized } else { path })
         })
     }
 
@@ -356,7 +364,14 @@ pub fn move_entity_impl(
             let old_path = settings.get("targetPath").and_then(|value| value.as_str()).map(PathBuf::from);
             if let Some(old_path) = old_path {
                 if let Ok(suffix) = old_path.strip_prefix(&source) {
-                    let rewritten = destination.join(suffix).to_string_lossy().to_string();
+                    // Joining an empty suffix adds a trailing separator on Windows, turning
+                    // a file path into a non-existent directory-like path on the next move.
+                    let rewritten_path = if suffix.as_os_str().is_empty() {
+                        destination.clone()
+                    } else {
+                        destination.join(suffix)
+                    };
+                    let rewritten = rewritten_path.to_string_lossy().to_string();
                     if let serde_json::Value::Object(ref mut map) = settings {
                         map.insert("targetPath".to_string(), serde_json::json!(rewritten));
                     }
@@ -466,6 +481,45 @@ mod tests {
         // Verify parent-child relationship in World
         assert_eq!(world.parent_ids.get(&nested_file_id), Some(&sub_folder_id));
     }
+
+    #[test]
+    fn test_move_file_twice_keeps_exact_target_path() {
+        let temp_dir = TempDir::new("test_move_file_twice").unwrap();
+        let first_dir = temp_dir.path().join("first");
+        let second_dir = temp_dir.path().join("second");
+        std::fs::create_dir(&first_dir).unwrap();
+        std::fs::create_dir(&second_dir).unwrap();
+        let original_file = first_dir.join("document.pdf");
+        std::fs::File::create(&original_file).unwrap();
+
+        let mut world = crate::ecs::World::new();
+        world.create_entity(); // Reserve ID 0, which is the root sentinel for move_entity.
+        let first_id = world.create_entity();
+        let second_id = world.create_entity();
+        let file_id = world.create_entity();
+        world.parent_ids.insert(file_id, first_id);
+        for (id, path) in [(first_id, &first_dir), (second_id, &second_dir)] {
+            world.add_component(id, create_component("grid", serde_json::json!({})).unwrap());
+            world.add_component(id, create_component("renderFile", serde_json::json!({
+                "targetPath": path, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+            })).unwrap());
+        }
+        world.add_component(file_id, create_component("renderFile", serde_json::json!({
+            "targetPath": original_file, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+        })).unwrap());
+
+        let conn = crate::db::init_db(&temp_dir.path().join("move_twice.db")).unwrap();
+        move_entity_impl(&mut world, &conn, file_id.0, second_id.0).unwrap();
+        let moved_file = second_dir.join("document.pdf");
+        let stored_path = world.components.get(&file_id).unwrap()[0].settings()
+            .get("targetPath").unwrap().as_str().unwrap().to_string();
+        assert_eq!(PathBuf::from(&stored_path), moved_file);
+        assert!(!stored_path.ends_with(std::path::MAIN_SEPARATOR));
+
+        move_entity_impl(&mut world, &conn, file_id.0, first_id.0).unwrap();
+        assert!(first_dir.join("document.pdf").exists());
+    }
+
 
     #[test]
     fn test_move_folder_rewrites_descendant_paths() {
