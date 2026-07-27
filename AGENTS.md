@@ -11,23 +11,33 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
 - **Component settings UI panels**:
   - Implement configurable inputs (text fields, checkboxes, sliders) to adjust component properties in real-time.
 
-### Plan: Centralization of Design Decisions
+### Planned: PDF Responsiveness, Deep-Nesting Navigation, and Tree Defaults
 
-To make it easier for future agents to understand the project architecture and design conventions, we propose creating a unified `DESIGN.md` in the project root. This document will serve as the single source of truth for:
-1. **Layout & Grid System Guidelines**:
-   - Explanation of the dynamic CSS Grid system column layout (`minmax(0, 1fr)`).
-   - Rules for dynamic column scaling when children counts are below the maximum (e.g. `children.length < columns`).
-2. **Media Rendering & Aspect Ratio Spanning Rules**:
-   - How orientation is detected (landscape vs portrait).
-   - How aspect ratios and height limits prevent layout blowups.
-3. **ECS Entity Parenting Conventions**:
-   - The generic `.entity-wrapper` container design (no folder-specific icon assumptions).
-   - Avoiding null-checking serialization pitfalls for root entities (`parentId === null` vs `undefined`).
-4. **Tauri Native Configurations & Frontend D&D**:
-   - Explaining why `"dragDropEnabled": false` is required in `tauri.conf.json` to allow frontend drag-and-drop.
-5. **Drag and Drop Event Handling**:
-   - Event bubbling isolation (`e.stopPropagation()` in TreeView).
-   - Unit testing workarounds under jsdom (e.g. mocking DragEvent, injecting client coordinates).
+The next implementation should address the following as one coordinated UI/layout task. Record the finalized rules in the existing root `DESIGN.md`.
+
+1. **Responsive, reachable PDF controls**:
+   - Keep all navigation and zoom actions reachable in small containers. Prefer compact controls plus horizontal toolbar scrolling/wrapping; do not hide essential zoom controls at narrow container-query breakpoints.
+   - Remove conflicting PDF minimum-height behavior that can push the toolbar outside a grid cell.
+   - Measure the usable canvas viewport width and height after toolbar, padding, and borders are accounted for.
+   - Provide explicit `Fit Page` and `Fit Width` modes, with responsive `Auto Fit` as the default. Preserve user-selected zoom across resizes rather than resetting it unexpectedly.
+2. **Faster, race-safe PDF loading**:
+   - Lazy-load PDF.js only when a PDF viewer is needed, and defer document opening/rendering until the viewer is visible or near the viewport. This is especially important because edit and live views remain mounted for instant switching.
+   - Avoid the current duplicate initial page fetch/render at scale `1` followed by another fetch/render after fitting. Fetch initial page metadata once, calculate fit, then render once.
+   - Guard asynchronous document loads and page renders with request generations so stale/cancelled work cannot overwrite current state. Reliably clean up loading tasks, render tasks, observers, and documents.
+   - Render with device-pixel-ratio backing dimensions for sharp output while retaining correct CSS dimensions. Keep the previous page visible while replacement rendering completes.
+   - Distinguish document loading from page rendering and provide useful retry/error UI and accessible labels.
+3. **Deep entity nesting**:
+   - Pass render depth through `RenderEntity` and `Grid`, and define a maximum inline nesting depth.
+   - At that limit, render a compact entity summary (name and child count) rather than another increasingly tiny recursive grid.
+   - Allow opening that entity as the focused desktop root, with breadcrumb/back navigation through ancestors and back to the trove root. Do not merely clip or make deeply nested entities unreachable.
+4. **Tree view defaults**:
+   - Initialize all folder nodes expanded by default while preserving manual collapse/expand behavior.
+   - Add a multi-level test proving nested folders are all visible initially and update tests that currently assume collapsed folders.
+5. **Testing and documentation**:
+   - Add PDF tests for tiny containers, reachable controls, fit calculations, one initial render, resize behavior, visibility deferral, stale-load cancellation, and cleanup.
+   - Add focused deep-navigation and breadcrumb tests.
+   - Fix the JSDOM canvas polyfill so it does not call JSDOM's intentionally unimplemented `getContext` before returning the mock, which currently floods passing tests with warnings.
+   - Update `DESIGN.md` with PDF lifecycle/fit/toolbar rules, maximum inline nesting and focus navigation, and expanded-by-default tree behavior.
 
 ### Agent Log & Learnings
 
