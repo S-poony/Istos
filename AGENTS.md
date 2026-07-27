@@ -101,6 +101,15 @@ To make it easier for future agents to understand the project architecture and d
   - *Solution*: Use a shared filter such as `cargo test test_move_`, or run each exact test as a separate command.
 
 
+- **Entity ID `0` Must Not Double as the Root Sentinel**:
+  - *Mistake*: Sending `0` as the parent ID for root-level moves made entity ID `0` impossible to use as a real destination folder. Since ECS IDs start at `0`, cross-folder moves into the first scanned folder could be interpreted as moves to the trove root.
+  - *Solution*: Represent the root parent as `null`/Rust `Option::None`; preserve every numeric ID, including `0`, as a valid entity parent.
+
+- **Verify Available npm Scripts Before Running Them**:
+  - *Mistake*: Running `npm run check` without verifying that `package.json` defines a `check` script caused an avoidable command failure.
+  - *Solution*: Inspect `package.json` first or use the configured scripts directly (currently `npm test -- --run` for frontend validation).
+
+
 - **Rust Formatting Tool Availability**:
   - *Mistake*: Running `cargo fmt -- --check && cargo test` assumed the `rustfmt` component was installed, so the command stopped before tests ran.
   - *Solution*: Run `cargo test` separately when formatting tooling is unavailable. Install it later with `rustup component add rustfmt` if formatting checks are required.
