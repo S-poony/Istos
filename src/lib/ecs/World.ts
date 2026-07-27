@@ -8,6 +8,7 @@ export class World {
   entities: Map<EntityId, Entity> = new Map();
   components: Map<EntityId, Component[]> = new Map();
   systems: System[] = [];
+  rootOrder: EntityId[] = [];
 
   constructor() {}
 
@@ -117,6 +118,7 @@ export class World {
 
     this.entities.clear();
     this.components.clear();
+    this.rootOrder = Array.isArray(data.rootOrder) ? [...data.rootOrder] : [];
 
     for (const entityData of data.entities) {
       if (!entityData || typeof entityData.id !== "number" || !Array.isArray(entityData.components)) {
@@ -151,6 +153,18 @@ export class World {
     }
     return { entities };
   }
+
+  /// Returns root entities in their persisted explicit order, then new roots alphabetically.
+  getOrderedRoots(): EntityId[] {
+    const roots = [...this.entities]
+      .filter(([_, entity]) => entity.parentId === undefined || entity.parentId === null)
+      .map(([id]) => id);
+    const rootSet = new Set(roots);
+    const ordered = this.rootOrder.filter((id) => rootSet.has(id));
+    const known = new Set(ordered);
+    return [...ordered, ...this.sortEntities(roots.filter((id) => !known.has(id)))];
+  }
+
 
   /// Returns children ordered by the parent's grid component order settings, or falls back to sortEntities.
   getOrderedChildren(parentId: EntityId): EntityId[] {

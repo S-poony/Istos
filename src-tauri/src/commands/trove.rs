@@ -139,9 +139,12 @@ pub fn open_trove(
 #[tauri::command]
 pub fn get_world_state(
     world: State<'_, WorldState>,
+    db: State<'_, DbState>,
 ) -> Result<WorldSnapshot, String> {
     let w = world.0.lock().map_err(|e| e.to_string())?;
-    let snapshot = WorldSnapshot::from(&*w);
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut snapshot = WorldSnapshot::from(&*w);
+    snapshot.root_order = crate::db::load_root_order(&conn).map_err(|e| e.to_string())?;
     Ok(snapshot)
 }
 
@@ -284,7 +287,93 @@ pub fn reorder_children(
     Ok(())
 }
 
-/// Moves an entity to a new parent (and moves the underlying file on disk).
+/// Core move implementation, separated from Tauri State for validation and tests.
+pub fn move_entity_impl(
+    w: &mut crate::ecs::World,
+    conn: &rusqlite::Connection,
+    entity_id: u64,
+    new_parent_id: u64,
+) -> Result<(), String> {
+    let eid = EntityId::new(entity_id);
+    let new_pid = EntityId::new(new_parent_id);
+
+    if !w.entities.contains(&eid) { return Err(format!("Entity {} not found", entity_id)); }
+    if new_parent_id != 0 && !w.entities.contains(&new_pid) {
+        return Err(format!("New parent entity {} not found", new_parent_id));
+    }
+    if eid == new_pid { return Err("An entity cannot be moved into itself".to_string()); }
+
+    if new_parent_id != 0 {
+        let is_folder = w.components.get(&new_pid).is_some_and(|components|
+            components.iter().any(|component| component.component_type() == "grid")
+        );
+        if !is_folder { return Err("Files can only be moved into folders".to_string()); }
+        let mut ancestor = Some(new_pid);
+        while let Some(current) = ancestor {
+            if current == eid {
+                return Err("A folder cannot be moved into one of its descendants".to_string());
+            }
+            ancestor = w.parent_ids.get(&current).copied();
+        }
+    }
+
+    fn entity_path(w: &crate::ecs::World, entity: &EntityId) -> Option<PathBuf> {
+        w.components.get(entity)?.iter().find_map(|component| {
+            if component.component_type() != "renderFile" { return None; }
+            component.settings().get("targetPath")?.as_str().map(PathBuf::from)
+        })
+    }
+
+    let source = entity_path(w, &eid)
+        .ok_or_else(|| format!("Entity {} has no filesystem path", entity_id))?;
+    if !source.exists() { return Err(format!("Source path does not exist: {}", source.display())); }
+
+    let destination_dir = if new_parent_id == 0 {
+        crate::db::load_trove_path(conn).map_err(|e| e.to_string())?
+            .map(PathBuf::from).ok_or_else(|| "No trove root is configured".to_string())?
+    } else {
+        entity_path(w, &new_pid).ok_or_else(|| "Destination folder has no filesystem path".to_string())?
+    };
+    if !destination_dir.is_dir() {
+        return Err(format!("Destination is not a directory: {}", destination_dir.display()));
+    }
+
+    let file_name = source.file_name().ok_or_else(|| "Source path has no file name".to_string())?;
+    let destination = destination_dir.join(file_name);
+    if source == destination { return Ok(()); }
+    if destination.exists() {
+        return Err(format!("An item named {} already exists in the destination", file_name.to_string_lossy()));
+    }
+
+    std::fs::rename(&source, &destination).map_err(|e|
+        format!("Failed to move {} to {}: {}", source.display(), destination.display(), e)
+    )?;
+
+    for components in w.components.values_mut() {
+        for component in components.iter_mut() {
+            if component.component_type() != "renderFile" { continue; }
+            let mut settings = component.settings();
+            let old_path = settings.get("targetPath").and_then(|value| value.as_str()).map(PathBuf::from);
+            if let Some(old_path) = old_path {
+                if let Ok(suffix) = old_path.strip_prefix(&source) {
+                    let rewritten = destination.join(suffix).to_string_lossy().to_string();
+                    if let serde_json::Value::Object(ref mut map) = settings {
+                        map.insert("targetPath".to_string(), serde_json::json!(rewritten));
+                    }
+                    component.update_settings(settings);
+                }
+            }
+        }
+    }
+
+    if new_parent_id == 0 { w.parent_ids.remove(&eid); } else { w.parent_ids.insert(eid, new_pid); }
+    w.save(conn).map_err(|error| format!("Failed to persist move: {}", error))?;
+    info!("Moved entity {} to parent {}", entity_id, new_parent_id);
+    Ok(())
+}
+
+/// Moves an entity to a new parent and moves its file or directory on disk.
+/// Validation happens before any filesystem or ECS mutation.
 #[tauri::command]
 pub fn move_entity(
     world: State<'_, WorldState>,
@@ -294,97 +383,7 @@ pub fn move_entity(
 ) -> Result<(), String> {
     let mut w = world.0.lock().map_err(|e| e.to_string())?;
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let eid = EntityId::new(entity_id);
-    let new_pid = EntityId::new(new_parent_id);
-
-    if !w.entities.contains(&eid) {
-        return Err(format!("Entity {} not found", entity_id));
-    }
-    if new_parent_id != 0 && !w.entities.contains(&new_pid) {
-        return Err(format!("New parent entity {} not found", new_parent_id));
-    }
-
-    // Get the entity's current path from renderFile component
-    let entity_path: Option<PathBuf> = w.components.get(&eid).and_then(|comps| {
-        comps.iter().find_map(|c| {
-            if c.component_type() == "renderFile" {
-                if let serde_json::Value::Object(map) = c.settings() {
-                    map.get("targetPath").and_then(|v| v.as_str()).map(PathBuf::from)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-    });
-
-    // Get the new parent's directory path
-    let parent_path: Option<PathBuf> = if new_parent_id == 0 {
-        crate::db::load_trove_path(&conn)
-            .map_err(|e| e.to_string())?
-            .map(PathBuf::from)
-    } else {
-        w.components.get(&new_pid).and_then(|comps| {
-            comps.iter().find_map(|c| {
-                if c.component_type() == "renderFile" {
-                    if let serde_json::Value::Object(map) = c.settings() {
-                        map.get("targetPath").and_then(|v| v.as_str()).map(PathBuf::from)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-        })
-    };
-
-    // Move the actual file on disk
-    if let (Some(src), Some(dest_dir)) = (&entity_path, &parent_path) {
-        if src.exists() {
-            let file_name = src.file_name().ok_or_else(|| "Source path has no file name".to_string())?;
-            let dest = if dest_dir.is_dir() {
-                dest_dir.join(file_name)
-            } else {
-                // If the parent's renderFile path is a file, use its parent directory
-                let parent_dir = dest_dir.parent().ok_or_else(|| "Parent path has no parent directory".to_string())?;
-                parent_dir.join(file_name)
-            };
-
-            std::fs::rename(src, &dest).map_err(|e| {
-                format!("Failed to move file from {} to {}: {}", src.display(), dest.display(), e)
-            })?;
-
-            // Update the entity's renderFile component with the new path
-            let new_path = dest.to_string_lossy().to_string();
-            if let Some(comps) = w.components.get_mut(&eid) {
-                for comp in comps.iter_mut() {
-                    if comp.component_type() == "renderFile" {
-                        let mut settings = comp.settings();
-                        if let serde_json::Value::Object(ref mut map) = settings {
-                            map.insert("targetPath".to_string(), serde_json::json!(new_path));
-                        }
-                        comp.update_settings(settings);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Reparent in the ECS
-    if new_parent_id == 0 {
-        w.parent_ids.remove(&eid);
-    } else {
-        w.parent_ids.insert(eid, new_pid);
-    }
-
-    // Persist
-    w.save(&conn).map_err(|e| e.to_string())?;
-
-    info!("Moved entity {} to parent {}", entity_id, new_parent_id);
-    Ok(())
+    move_entity_impl(&mut w, &conn, entity_id, new_parent_id)
 }
 
 
@@ -467,4 +466,66 @@ mod tests {
         // Verify parent-child relationship in World
         assert_eq!(world.parent_ids.get(&nested_file_id), Some(&sub_folder_id));
     }
+
+    #[test]
+    fn test_move_folder_rewrites_descendant_paths() {
+        let temp_dir = TempDir::new("test_move_folder").unwrap();
+        let source = temp_dir.path().join("source");
+        let destination_parent = temp_dir.path().join("destination");
+        std::fs::create_dir_all(source.join("nested")).unwrap();
+        std::fs::create_dir(&destination_parent).unwrap();
+        let child_path = source.join("nested").join("child.txt");
+        std::fs::File::create(&child_path).unwrap();
+
+        let mut world = crate::ecs::World::new();
+        let source_id = world.create_entity();
+        let destination_id = world.create_entity();
+        let child_id = world.create_entity();
+        world.parent_ids.insert(child_id, source_id);
+        world.add_component(source_id, create_component("grid", serde_json::json!({})).unwrap());
+        world.add_component(source_id, create_component("renderFile", serde_json::json!({
+            "targetPath": source, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+        })).unwrap());
+        world.add_component(destination_id, create_component("grid", serde_json::json!({})).unwrap());
+        world.add_component(destination_id, create_component("renderFile", serde_json::json!({
+            "targetPath": destination_parent, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+        })).unwrap());
+        world.add_component(child_id, create_component("renderFile", serde_json::json!({
+            "targetPath": child_path, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+        })).unwrap());
+
+        let conn = crate::db::init_db(&temp_dir.path().join("move.db")).unwrap();
+        move_entity_impl(&mut world, &conn, source_id.0, destination_id.0).unwrap();
+
+        let moved_source = destination_parent.join("source");
+        let moved_child = moved_source.join("nested").join("child.txt");
+        assert!(moved_child.exists());
+        let stored_child_path = world.components.get(&child_id).unwrap()[0].settings()
+            .get("targetPath").unwrap().as_str().unwrap().to_string();
+        assert_eq!(PathBuf::from(stored_child_path), moved_child);
+        assert_eq!(world.parent_ids.get(&source_id), Some(&destination_id));
+    }
+
+    #[test]
+    fn test_move_rejects_descendant_target() {
+        let temp_dir = TempDir::new("test_move_cycle").unwrap();
+        let parent_path = temp_dir.path().join("parent");
+        let child_path = parent_path.join("child");
+        std::fs::create_dir_all(&child_path).unwrap();
+
+        let mut world = crate::ecs::World::new();
+        let parent_id = world.create_entity();
+        let child_id = world.create_entity();
+        world.parent_ids.insert(child_id, parent_id);
+        for (id, path) in [(parent_id, parent_path), (child_id, child_path)] {
+            world.add_component(id, create_component("grid", serde_json::json!({})).unwrap());
+            world.add_component(id, create_component("renderFile", serde_json::json!({
+                "targetPath": path, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+            })).unwrap());
+        }
+        let conn = crate::db::init_db(&temp_dir.path().join("cycle.db")).unwrap();
+        let error = move_entity_impl(&mut world, &conn, parent_id.0, child_id.0).unwrap_err();
+        assert!(error.contains("descendants"));
+    }
+
 }

@@ -5,25 +5,21 @@
   import TreeNode from "./TreeNode.svelte";
 
   /// All root entities, derived from worldStore.
-  let rootIds = $derived(
-    [...$worldStore.entities]
-      .filter(([_, e]) => e.parentId === undefined || e.parentId === null)
-      .map(([id]) => id)
-  );
+  let rootIds = $derived($worldStore.getOrderedRoots());
 
-  let draggedId = $state<EntityId | null>(null);
-  let dropTarget = $state<{
+  type DropTarget = {
     type: "between" | "into";
     entityId: EntityId;
     position: "before" | "after";
-  } | null>(null);
+  };
+
+  let draggedId = $state<EntityId | null>(null);
+  let dropTarget = $state<DropTarget | null>(null);
 
 
   function setDropTarget(target: typeof dropTarget) {
     dropTarget = target;
   }
-
-  let dragLeaveTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 
   /// Find the parent of an entity.
   function getParentId(id: EntityId): EntityId | null {
@@ -70,60 +66,53 @@
     return false;
   }
 
-  function handleDragOver(e: DragEvent, id: EntityId) {
-    // Cancel any pending dragleave timer
-    if (dragLeaveTimer) {
-      clearTimeout(dragLeaveTimer);
-      dragLeaveTimer = null;
-    }
-    if (draggedId === null || isAncestor(id, draggedId)) {
-      dropTarget = null;
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = "move";
-    }
+  function getDropTarget(e: DragEvent, id: EntityId): DropTarget | null {
+    if (draggedId === null || isAncestor(id, draggedId)) return null;
 
     const target = e.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
-    const relY = e.clientY - rect.top;
-    const ratio = relY / rect.height;
+    if (rect.height <= 0) return null;
 
-    if (isFolder(id) && ratio > 0.10 && ratio < 0.90) {
-      dropTarget = { type: "into", entityId: id, position: "after" };
-    } else if (ratio < 0.5) {
-      dropTarget = { type: "between", entityId: id, position: "before" };
-    } else {
-      dropTarget = { type: "between", entityId: id, position: "after" };
+    const ratio = (e.clientY - rect.top) / rect.height;
+    if (isFolder(id) && ratio > 0.2 && ratio < 0.8) {
+      return { type: "into", entityId: id, position: "after" };
     }
+    return {
+      type: "between",
+      entityId: id,
+      position: ratio < 0.5 ? "before" : "after",
+    };
   }
 
-  function handleDragLeave() {
-    // Don't nullify immediately — drop event may fire next in same event-loop tick.
-    // Use a short timeout so handleDrop can see the correct dropTarget.
-    dragLeaveTimer = setTimeout(() => {
-      dropTarget = null;
-      dragLeaveTimer = null;
-    }, 100);
-  }
-
-  async function handleDrop(e: DragEvent, targetId: EntityId) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (draggedId === null || draggedId === targetId) {
-      draggedId = null;
+  function handleDragOver(e: DragEvent, id: EntityId) {
+    const target = getDropTarget(e, id);
+    if (!target) {
       dropTarget = null;
       return;
     }
 
-    const target = dropTarget;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    dropTarget = target;
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    const current = e.currentTarget as HTMLElement;
+    const next = e.relatedTarget as Node | null;
+    if (!next || !current.contains(next)) dropTarget = null;
+  }
+
+  async function handleDrop(e: DragEvent, targetId: EntityId, explicitTarget?: DropTarget) {
+    e.preventDefault();
+    e.stopPropagation();
+
     const sourceId = draggedId;
+    const target = explicitTarget ?? getDropTarget(e, targetId);
     draggedId = null;
     dropTarget = null;
 
-    if (!target) return;
+    if (sourceId === null || sourceId === targetId || !target) return;
 
     try {
       if (target.type === "into") {
@@ -131,58 +120,46 @@
           entityId: sourceId,
           newParentId: target.entityId,
         });
-        await worldStore.refreshFromBackend();
-      } else if (target.type === "between") {
+      } else {
         const targetParentId = getParentId(target.entityId);
-        const draggedParentId = getParentId(sourceId);
+        const sourceParentId = getParentId(sourceId);
 
-        if (targetParentId === draggedParentId) {
-          // Same parent: reorder siblings
-          const siblings = getSiblings(sourceId);
-          const filtered = siblings.filter(id => id !== sourceId);
-          const targetIdx = filtered.indexOf(target.entityId);
-          const insertPos = target.position === "before" ? targetIdx : targetIdx + 1;
-          const newOrder = [
-            ...filtered.slice(0, insertPos),
-            sourceId,
-            ...filtered.slice(insertPos),
-          ];
-          const parentId = targetParentId ?? 0;
-          await invoke("reorder_children", {
-            parentEntityId: parentId,
-            orderedIds: newOrder,
-          });
-        } else {
-          // Different parent: first move, then reorder
-          const targetParent = targetParentId ?? 0;
+        if (targetParentId !== sourceParentId) {
           await invoke("move_entity", {
             entityId: sourceId,
-            newParentId: targetParent,
+            newParentId: targetParentId ?? 0,
           });
-          // Refresh the store so children lists reflect the move
           await worldStore.refreshFromBackend();
-          // Now reorder within the new parent
-          const siblings = targetParentId === null
-            ? [...$worldStore.entities].filter(([_, e]) => e.parentId === undefined || e.parentId === null).map(([eid]) => eid)
-            : $worldStore.getChildren(targetParentId);
-          const targetSiblings = siblings.filter(id => id !== sourceId);
-          const targetIdx = targetSiblings.indexOf(target.entityId);
-          const insertPos = target.position === "before" ? targetIdx : targetIdx + 1;
-          const newOrder = [
-            ...targetSiblings.slice(0, insertPos),
-            sourceId,
-            ...targetSiblings.slice(insertPos),
-          ];
-          await invoke("reorder_children", {
-            parentEntityId: targetParent,
-            orderedIds: newOrder,
-          });
         }
+
+        const siblings = targetParentId === null
+          ? [...$worldStore.entities]
+              .filter(([_, entity]) => entity.parentId === undefined || entity.parentId === null)
+              .map(([id]) => id)
+          : $worldStore.getOrderedChildren(targetParentId);
+        const withoutSource = siblings.filter((id) => id !== sourceId);
+        const targetIndex = withoutSource.indexOf(target.entityId);
+        if (targetIndex < 0) throw new Error("Drop target is no longer in the destination folder");
+        const insertionIndex = target.position === "before" ? targetIndex : targetIndex + 1;
+        const newOrder = [
+          ...withoutSource.slice(0, insertionIndex),
+          sourceId,
+          ...withoutSource.slice(insertionIndex),
+        ];
+        await invoke("reorder_children", {
+          parentEntityId: targetParentId ?? 0,
+          orderedIds: newOrder,
+        });
       }
 
+      await worldStore.refreshFromBackend();
     } catch (err) {
       console.error("Drag/drop failed:", err);
       alert(`Failed to reorder/move: ${err}`);
+      await worldStore.refreshFromBackend().catch(() => undefined);
+    } finally {
+      draggedId = null;
+      dropTarget = null;
     }
   }
 
@@ -216,7 +193,7 @@
   }
 </script>
 
-<div class="tree-root" ondragover={(e) => e.preventDefault()} ondrop={handleRootDrop}>
+<div class="tree-root" role="tree" tabindex="0" ondragover={(e) => e.preventDefault()} ondrop={handleRootDrop}>
   {#each rootIds as id (id)}
     <TreeNode
       {id}
@@ -230,6 +207,7 @@
       onDragEnd={handleDragEnd}
       isAncestor={isAncestor}
       setDropTarget={setDropTarget}
+      depth={0}
     />
   {/each}
 

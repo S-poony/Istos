@@ -14,8 +14,8 @@
     isFolder: (id: EntityId) => boolean;
     onDragStart: (e: DragEvent, id: EntityId) => void;
     onDragOver: (e: DragEvent, id: EntityId) => void;
-    onDragLeave: () => void;
-    onDrop: (e: DragEvent, id: EntityId) => void;
+    onDragLeave: (e: DragEvent) => void;
+    onDrop: (e: DragEvent, id: EntityId, explicitTarget?: Props["dropTarget"]) => void;
     onDragEnd: () => void;
     depth: number;
     isAncestor: (childId: EntityId, parentId: EntityId) => boolean;
@@ -121,6 +121,9 @@
 >
   <div
     class="tree-node"
+    role="treeitem"
+    aria-selected="false"
+    tabindex="-1"
     class:drop-into={dropInto}
     class:dragging={isDragging}
     style="padding-left: {depth * 20 + 8}px;"
@@ -147,6 +150,7 @@
   {#if expanded && (folder || orderedChildren.length > 0)}
     <div
       class="children"
+      role="group"
       class:drop-into={dropInto}
       ondragover={(e) => {
         e.preventDefault();
@@ -155,13 +159,16 @@
           setDropTarget({ type: "into", entityId: id, position: "after" });
         }
       }}
-      ondragleave={() => {
-        setDropTarget(null);
+      ondragleave={(e) => {
+        const next = e.relatedTarget as Node | null;
+        if (!next || !(e.currentTarget as HTMLElement).contains(next)) {
+          setDropTarget(null);
+        }
       }}
       ondrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onDrop(e, id);
+        onDrop(e, id, { type: "into", entityId: id, position: "after" });
       }}
     >
       {#each orderedChildren as childId (childId)}

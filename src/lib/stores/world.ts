@@ -34,16 +34,8 @@ function createWorldStore() {
 
 export const worldStore = createWorldStore();
 
-/// Derived store: entities that have no parentId.
-export const rootEntities = derived(worldStore, ($world) => {
-  const roots: EntityId[] = [];
-  for (const [id, entity] of $world.entities) {
-    if (entity.parentId === undefined || entity.parentId === null) {
-      roots.push(id);
-    }
-  }
-  return $world.sortEntities(roots);
-});
+/// Derived store: root entities in persisted order.
+export const rootEntities = derived(worldStore, ($world) => $world.getOrderedRoots());
 
 /// Derived store: entities that have a grid component.
 export const gridEntities = derived(worldStore, ($world) =>
