@@ -227,24 +227,21 @@ pub fn update_component_settings(
 pub fn reorder_children(
     world: State<'_, WorldState>,
     db: State<'_, DbState>,
-    parent_entity_id: u64,
+    parent_entity_id: Option<u64>,
     ordered_ids: Vec<u64>,
 ) -> Result<(), String> {
     let mut w = world.0.lock().map_err(|e| e.to_string())?;
-    let parent_eid = EntityId::new(parent_entity_id);
-    if parent_entity_id != 0 && !w.entities.contains(&parent_eid) {
-        return Err(format!("Parent entity {} not found", parent_entity_id));
+    let parent_eid = parent_entity_id.map(EntityId::new);
+    if let Some(parent_eid) = parent_eid {
+        if !w.entities.contains(&parent_eid) {
+            return Err(format!("Parent entity {} not found", parent_eid.0));
+        }
     }
 
     // Validate that all ordered_ids are actual children
-    let actual_children: Vec<u64> = if parent_entity_id == 0 {
+    let actual_children: Vec<u64> = if let Some(parent_eid) = parent_eid {
         w.entities.all()
-            .filter(|eid| !w.parent_ids.contains_key(eid))
-            .map(|eid| eid.0)
-            .collect()
-    } else {
-        w.components.iter()
-            .filter_map(|(eid, _)| {
+            .filter_map(|eid| {
                 if w.parent_ids.get(eid) == Some(&parent_eid) {
                     Some(eid.0)
                 } else {
@@ -252,20 +249,21 @@ pub fn reorder_children(
                 }
             })
             .collect()
+    } else {
+        w.entities.all()
+            .filter(|eid| !w.parent_ids.contains_key(eid))
+            .map(|eid| eid.0)
+            .collect()
     };
 
     for &oid in &ordered_ids {
         if !actual_children.contains(&oid) {
-            return Err(format!("Entity {} is not a child of {}", oid, parent_entity_id));
+            return Err(format!("Entity {} is not a child of {:?}", oid, parent_entity_id));
         }
     }
 
     // Update ordering: if parent is 0 (root), store in config; otherwise update grid component
-    if parent_entity_id == 0 {
-        let order_json = serde_json::to_string(&ordered_ids).unwrap_or_default();
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        crate::db::save_root_order(&conn, &order_json).map_err(|e| e.to_string())?;
-    } else {
+    if let Some(parent_eid) = parent_eid {
         if let Some(comps) = w.components.get_mut(&parent_eid) {
             for comp in comps.iter_mut() {
                 if comp.component_type() == "grid" {
@@ -278,6 +276,10 @@ pub fn reorder_children(
                 }
             }
         }
+    } else {
+        let order_json = serde_json::to_string(&ordered_ids).unwrap_or_default();
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        crate::db::save_root_order(&conn, &order_json).map_err(|e| e.to_string())?;
     }
 
     // Persist
@@ -292,18 +294,18 @@ pub fn move_entity_impl(
     w: &mut crate::ecs::World,
     conn: &rusqlite::Connection,
     entity_id: u64,
-    new_parent_id: u64,
+    new_parent_id: Option<u64>,
 ) -> Result<(), String> {
     let eid = EntityId::new(entity_id);
-    let new_pid = EntityId::new(new_parent_id);
+    let new_pid = new_parent_id.map(EntityId::new);
 
     if !w.entities.contains(&eid) { return Err(format!("Entity {} not found", entity_id)); }
-    if new_parent_id != 0 && !w.entities.contains(&new_pid) {
-        return Err(format!("New parent entity {} not found", new_parent_id));
-    }
-    if eid == new_pid { return Err("An entity cannot be moved into itself".to_string()); }
+    if let Some(new_pid) = new_pid {
+        if !w.entities.contains(&new_pid) {
+            return Err(format!("New parent entity {} not found", new_pid.0));
+        }
+        if eid == new_pid { return Err("An entity cannot be moved into itself".to_string()); }
 
-    if new_parent_id != 0 {
         let is_folder = w.components.get(&new_pid).is_some_and(|components|
             components.iter().any(|component| component.component_type() == "grid")
         );
@@ -336,11 +338,11 @@ pub fn move_entity_impl(
         .ok_or_else(|| format!("Entity {} has no filesystem path", entity_id))?;
     if !source.exists() { return Err(format!("Source path does not exist: {}", source.display())); }
 
-    let destination_dir = if new_parent_id == 0 {
+    let destination_dir = if let Some(new_pid) = new_pid {
+        entity_path(w, &new_pid).ok_or_else(|| "Destination folder has no filesystem path".to_string())?
+    } else {
         crate::db::load_trove_path(conn).map_err(|e| e.to_string())?
             .map(PathBuf::from).ok_or_else(|| "No trove root is configured".to_string())?
-    } else {
-        entity_path(w, &new_pid).ok_or_else(|| "Destination folder has no filesystem path".to_string())?
     };
     if !destination_dir.is_dir() {
         return Err(format!("Destination is not a directory: {}", destination_dir.display()));
@@ -348,7 +350,15 @@ pub fn move_entity_impl(
 
     let file_name = source.file_name().ok_or_else(|| "Source path has no file name".to_string())?;
     let destination = destination_dir.join(file_name);
-    if source == destination { return Ok(()); }
+    // The filesystem may already be in the requested location while the ECS parent is
+    // stale (for example, after an older move returned before persisting metadata).
+    // Treat this as a metadata reconciliation, not as a complete no-op.
+    if source == destination {
+        if let Some(new_pid) = new_pid { w.parent_ids.insert(eid, new_pid); } else { w.parent_ids.remove(&eid); }
+        w.save(conn).map_err(|error| format!("Failed to persist move: {}", error))?;
+        info!("Reconciled entity {} with parent {:?}", entity_id, new_parent_id);
+        return Ok(());
+    }
     if destination.exists() {
         return Err(format!("An item named {} already exists in the destination", file_name.to_string_lossy()));
     }
@@ -381,9 +391,9 @@ pub fn move_entity_impl(
         }
     }
 
-    if new_parent_id == 0 { w.parent_ids.remove(&eid); } else { w.parent_ids.insert(eid, new_pid); }
+    if let Some(new_pid) = new_pid { w.parent_ids.insert(eid, new_pid); } else { w.parent_ids.remove(&eid); }
     w.save(conn).map_err(|error| format!("Failed to persist move: {}", error))?;
-    info!("Moved entity {} to parent {}", entity_id, new_parent_id);
+    info!("Moved entity {} to parent {:?}", entity_id, new_parent_id);
     Ok(())
 }
 
@@ -394,7 +404,7 @@ pub fn move_entity(
     world: State<'_, WorldState>,
     db: State<'_, DbState>,
     entity_id: u64,
-    new_parent_id: u64,
+    new_parent_id: Option<u64>,
 ) -> Result<(), String> {
     let mut w = world.0.lock().map_err(|e| e.to_string())?;
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -509,15 +519,86 @@ mod tests {
         })).unwrap());
 
         let conn = crate::db::init_db(&temp_dir.path().join("move_twice.db")).unwrap();
-        move_entity_impl(&mut world, &conn, file_id.0, second_id.0).unwrap();
+        move_entity_impl(&mut world, &conn, file_id.0, Some(second_id.0)).unwrap();
         let moved_file = second_dir.join("document.pdf");
         let stored_path = world.components.get(&file_id).unwrap()[0].settings()
             .get("targetPath").unwrap().as_str().unwrap().to_string();
         assert_eq!(PathBuf::from(&stored_path), moved_file);
         assert!(!stored_path.ends_with(std::path::MAIN_SEPARATOR));
 
-        move_entity_impl(&mut world, &conn, file_id.0, first_id.0).unwrap();
+        move_entity_impl(&mut world, &conn, file_id.0, Some(first_id.0)).unwrap();
         assert!(first_dir.join("document.pdf").exists());
+    }
+
+    #[test]
+    fn test_move_into_folder_with_entity_id_zero() {
+        let temp_dir = TempDir::new("test_move_into_zero").unwrap();
+        let destination_dir = temp_dir.path().join("destination");
+        let source_dir = temp_dir.path().join("source");
+        std::fs::create_dir(&destination_dir).unwrap();
+        std::fs::create_dir(&source_dir).unwrap();
+        let source_file = source_dir.join("document.txt");
+        std::fs::File::create(&source_file).unwrap();
+
+        let mut world = crate::ecs::World::new();
+        let destination_id = world.create_entity();
+        assert_eq!(destination_id.0, 0);
+        let source_parent_id = world.create_entity();
+        let file_id = world.create_entity();
+        world.parent_ids.insert(file_id, source_parent_id);
+
+        for (id, path) in [(destination_id, &destination_dir), (source_parent_id, &source_dir)] {
+            world.add_component(id, create_component("grid", serde_json::json!({})).unwrap());
+            world.add_component(id, create_component("renderFile", serde_json::json!({
+                "targetPath": path, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+            })).unwrap());
+        }
+        world.add_component(file_id, create_component("renderFile", serde_json::json!({
+            "targetPath": source_file, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+        })).unwrap());
+
+        let conn = crate::db::init_db(&temp_dir.path().join("move_zero.db")).unwrap();
+        move_entity_impl(&mut world, &conn, file_id.0, Some(destination_id.0)).unwrap();
+
+        assert_eq!(world.parent_ids.get(&file_id), Some(&destination_id));
+        assert!(destination_dir.join("document.txt").exists());
+    }
+
+
+    #[test]
+    fn test_move_reconciles_parent_when_file_is_already_at_destination() {
+        let temp_dir = TempDir::new("test_move_reconcile_parent").unwrap();
+        let first_dir = temp_dir.path().join("first");
+        let second_dir = temp_dir.path().join("second");
+        std::fs::create_dir(&first_dir).unwrap();
+        std::fs::create_dir(&second_dir).unwrap();
+        let file_path = first_dir.join("document.pdf");
+        std::fs::File::create(&file_path).unwrap();
+
+        let mut world = crate::ecs::World::new();
+        world.create_entity(); // Reserve ID 0, which is the root sentinel for move_entity.
+        let first_id = world.create_entity();
+        let second_id = world.create_entity();
+        let file_id = world.create_entity();
+        // Simulate stale ECS metadata: the file is physically in first, but recorded in second.
+        world.parent_ids.insert(file_id, second_id);
+        for (id, path) in [(first_id, &first_dir), (second_id, &second_dir)] {
+            world.add_component(id, create_component("grid", serde_json::json!({})).unwrap());
+            world.add_component(id, create_component("renderFile", serde_json::json!({
+                "targetPath": path, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+            })).unwrap());
+        }
+        world.add_component(file_id, create_component("renderFile", serde_json::json!({
+            "targetPath": file_path, "scale": 1.0, "position": {"x": 0.0, "y": 0.0}
+        })).unwrap());
+
+        let conn = crate::db::init_db(&temp_dir.path().join("reconcile.db")).unwrap();
+        move_entity_impl(&mut world, &conn, file_id.0, Some(first_id.0)).unwrap();
+
+        assert_eq!(world.parent_ids.get(&file_id), Some(&first_id));
+        let reloaded = crate::ecs::World::load_or_create(&conn);
+        assert_eq!(reloaded.parent_ids.get(&file_id), Some(&first_id));
+        assert!(file_path.exists());
     }
 
 
@@ -549,7 +630,7 @@ mod tests {
         })).unwrap());
 
         let conn = crate::db::init_db(&temp_dir.path().join("move.db")).unwrap();
-        move_entity_impl(&mut world, &conn, source_id.0, destination_id.0).unwrap();
+        move_entity_impl(&mut world, &conn, source_id.0, Some(destination_id.0)).unwrap();
 
         let moved_source = destination_parent.join("source");
         let moved_child = moved_source.join("nested").join("child.txt");
@@ -578,7 +659,7 @@ mod tests {
             })).unwrap());
         }
         let conn = crate::db::init_db(&temp_dir.path().join("cycle.db")).unwrap();
-        let error = move_entity_impl(&mut world, &conn, parent_id.0, child_id.0).unwrap_err();
+        let error = move_entity_impl(&mut world, &conn, parent_id.0, Some(child_id.0)).unwrap_err();
         assert!(error.contains("descendants"));
     }
 

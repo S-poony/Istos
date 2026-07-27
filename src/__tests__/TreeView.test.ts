@@ -674,7 +674,7 @@ describe('TreeView - Drag and Drop Integration', () => {
     expect(wrapper.classList.contains('drop-before')).toBe(false);
   });
 
-  it('should invoke move_entity with newParentId: 0 when dropping a nested file onto the root container', async () => {
+  it('should invoke move_entity with newParentId: null when dropping a nested file onto the root container', async () => {
     const { invoke } = await import('@tauri-apps/api/core');
     const { container } = render(TreeView);
 
@@ -690,11 +690,11 @@ describe('TreeView - Drag and Drop Integration', () => {
 
     expect(invoke).toHaveBeenCalledWith('move_entity', {
       entityId: 11,
-      newParentId: 0,
+      newParentId: null,
     });
   });
 
-  it('should invoke move_entity with newParentId: 0 when dropping a nested file between root-level siblings', async () => {
+  it('should invoke move_entity with newParentId: null when dropping a nested file between root-level siblings', async () => {
     const { invoke } = await import('@tauri-apps/api/core');
     const { container } = render(TreeView);
 
@@ -714,7 +714,7 @@ describe('TreeView - Drag and Drop Integration', () => {
 
     expect(invoke).toHaveBeenCalledWith('move_entity', {
       entityId: 11,
-      newParentId: 0,
+      newParentId: null,
     });
   });
 });

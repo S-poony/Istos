@@ -91,6 +91,16 @@ To make it easier for future agents to understand the project architecture and d
   - *Mistake*: Rewriting the moved entity's own path with `destination.join(suffix)` when `suffix` is empty appends a trailing separator on Windows. A file path then looks like a directory path, fails `exists()` on subsequent moves, and may display as a full path in the tree.
   - *Solution*: Use the exact destination when the stripped suffix is empty; only join non-empty descendant suffixes. Normalize legacy trailing separators when resolving stored paths and deriving display names.
 
+
+- **Filesystem No-op Must Still Reconcile ECS Parenting**:
+  - *Mistake*: Returning immediately from a move when the source and destination filesystem paths are equal leaves a stale `parent_id` untouched. A following reorder then fails because the backend does not consider the entity a child of the destination (for example, `Entity 3 is not a child of 0`).
+  - *Solution*: When paths are already equal, skip only the filesystem rename; still update `parent_ids` and persist the world so filesystem and ECS metadata are reconciled.
+
+- **Cargo Test Accepts One Positional Filter**:
+  - *Mistake*: Running `cargo test test_one test_two` fails because Cargo accepts only one positional test-name filter.
+  - *Solution*: Use a shared filter such as `cargo test test_move_`, or run each exact test as a separate command.
+
+
 - **Rust Formatting Tool Availability**:
   - *Mistake*: Running `cargo fmt -- --check && cargo test` assumed the `rustfmt` component was installed, so the command stopped before tests ran.
   - *Solution*: Run `cargo test` separately when formatting tooling is unavailable. Install it later with `rustup component add rustfmt` if formatting checks are required.

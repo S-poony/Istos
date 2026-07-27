@@ -132,7 +132,7 @@
         if (targetParentId !== sourceParentId) {
           await invoke("move_entity", {
             entityId: sourceId,
-            newParentId: targetParentId ?? 0,
+            newParentId: targetParentId,
           });
           await worldStore.refreshFromBackend();
         }
@@ -152,7 +152,7 @@
           ...withoutSource.slice(insertionIndex),
         ];
         await invoke("reorder_children", {
-          parentEntityId: targetParentId ?? 0,
+          parentEntityId: targetParentId,
           orderedIds: newOrder,
         });
       }
@@ -189,7 +189,7 @@
     try {
       await invoke("move_entity", {
         entityId: sourceId,
-        newParentId: 0,
+        newParentId: null,
       });
       await worldStore.refreshFromBackend();
     } catch (err) {
