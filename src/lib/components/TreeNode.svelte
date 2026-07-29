@@ -37,7 +37,7 @@
     setDropTarget,
   }: Props = $props();
 
-  let expanded = $state(false);
+  let expanded = $state(true);
 
   /// Display name
   let displayName = $derived.by(() => {
@@ -49,6 +49,11 @@
       return parts[parts.length - 1] || `Entity #${id}`;
     }
     return `Entity #${id}`;
+  });
+
+  /// Attached component types
+  let attachedComponents = $derived.by(() => {
+    return $worldStore.getComponents(id).map((c) => c.componentType);
   });
 
   /// Is this a directory/folder?
@@ -119,6 +124,7 @@
   class="tree-node-wrapper"
   class:drop-before={dropBefore}
   class:drop-after={dropAfter}
+  style="--indent-depth: {depth};"
 >
   <div
     class="tree-node"
@@ -146,6 +152,14 @@
 
     <span class="icon">{icon}</span>
     <span class="name">{displayName}</span>
+
+    {#if attachedComponents.length > 0}
+      <span class="components-list" data-testid="components-list">
+        {#each attachedComponents as compType}
+          <span class="component-badge" data-testid="component-badge">{compType}</span>
+        {/each}
+      </span>
+    {/if}
   </div>
 
   {#if expanded && (folder || orderedChildren.length > 0)}
@@ -231,6 +245,7 @@
     transition: background-color 0.15s;
     border: 1px solid transparent;
     white-space: nowrap;
+    position: relative;
   }
 
   .tree-node:hover {
@@ -276,7 +291,27 @@
     font-size: 13px;
   }
 
+  .components-list {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+  }
+
+  .component-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(124, 58, 237, 0.18);
+    color: #c4b5fd;
+    border: 1px solid rgba(124, 58, 237, 0.35);
+    font-weight: 500;
+  }
+
   .children {
     min-height: 0;
+    position: relative;
+    border-left: 1px dashed rgba(255, 255, 255, 0.1);
+    margin-left: calc(var(--indent-depth) * 20px + 16px);
   }
 </style>

@@ -77,7 +77,7 @@ describe('TreeNode - Expand/Collapse', () => {
     return worldStore.getWorld().getComponent(id, 'grid') !== undefined;
   }
 
-  it('should show toggle arrow for a folder with children', () => {
+  it('should show toggle arrow ▾ for a folder with children (expanded by default)', () => {
     const { container } = render(TreeNode, {
       id: 1,
       draggedId: null,
@@ -89,15 +89,17 @@ describe('TreeNode - Expand/Collapse', () => {
       onDrop: vi.fn(),
       onDragEnd: vi.fn(),
       depth: 0,
+      isAncestor: vi.fn(),
+      setDropTarget: vi.fn(),
     });
 
-    // The toggle arrow should be present (▸ since not expanded yet)
+    // The toggle arrow should be present (▾ since expanded by default)
     const toggle = container.querySelector('.toggle');
     expect(toggle).toBeInTheDocument();
-    expect(toggle?.textContent?.trim()).toBe('▸');
+    expect(toggle?.textContent?.trim()).toBe('▾');
   });
 
-  it('should NOT show children when collapsed', () => {
+  it('should show children when expanded by default', () => {
     const { container } = render(TreeNode, {
       id: 1,
       draggedId: null,
@@ -109,45 +111,18 @@ describe('TreeNode - Expand/Collapse', () => {
       onDrop: vi.fn(),
       onDragEnd: vi.fn(),
       depth: 0,
+      isAncestor: vi.fn(),
+      setDropTarget: vi.fn(),
     });
 
-    // Children wrapper should NOT be in the DOM
-    const childrenContainer = container.querySelector('.children');
-    expect(childrenContainer).toBeNull();
-  });
-
-  it('should expand and show children when toggle is clicked', async () => {
-    const { container } = render(TreeNode, {
-      id: 1,
-      draggedId: null,
-      dropTarget: null,
-      isFolder,
-      onDragStart: vi.fn(),
-      onDragOver: vi.fn(),
-      onDragLeave: vi.fn(),
-      onDrop: vi.fn(),
-      onDragEnd: vi.fn(),
-      depth: 0,
-    });
-
-    // Click the toggle to expand
-    const toggle = container.querySelector('.toggle') as HTMLElement;
-    expect(toggle).toBeInTheDocument();
-    await fireEvent.click(toggle);
-
-    // Toggle arrow should change to ▾
-    expect(toggle.textContent?.trim()).toBe('▾');
-
-    // Children should now be visible
+    // Children wrapper should be in the DOM initially
     const childrenContainer = container.querySelector('.children');
     expect(childrenContainer).toBeInTheDocument();
-
-    // Should contain child nodes (recursive TreeNodes for children)
     const childNodes = childrenContainer!.querySelectorAll('.tree-node');
     expect(childNodes.length).toBe(2);
   });
 
-  it('should collapse and hide children when toggle is clicked again', async () => {
+  it('should collapse and hide children when toggle is clicked', async () => {
     const { container } = render(TreeNode, {
       id: 1,
       draggedId: null,
@@ -159,19 +134,45 @@ describe('TreeNode - Expand/Collapse', () => {
       onDrop: vi.fn(),
       onDragEnd: vi.fn(),
       depth: 0,
+      isAncestor: vi.fn(),
+      setDropTarget: vi.fn(),
     });
 
     const toggle = container.querySelector('.toggle') as HTMLElement;
-
-    // Expand
-    await fireEvent.click(toggle);
     expect(toggle.textContent?.trim()).toBe('▾');
     expect(container.querySelector('.children')).toBeInTheDocument();
 
-    // Collapse
+    // Click toggle to collapse
     await fireEvent.click(toggle);
+
+    // Toggle arrow should change to ▸
     expect(toggle.textContent?.trim()).toBe('▸');
-    expect(container.querySelector('.children')).toBeNull();
+
+    // Children should now be hidden/removed
+    const childrenContainer = container.querySelector('.children');
+    expect(childrenContainer).toBeNull();
+  });
+
+  it('should render attached component badges for an entity', () => {
+    render(TreeNode, {
+      id: 1,
+      draggedId: null,
+      dropTarget: null,
+      isFolder,
+      onDragStart: vi.fn(),
+      onDragOver: vi.fn(),
+      onDragLeave: vi.fn(),
+      onDrop: vi.fn(),
+      onDragEnd: vi.fn(),
+      depth: 0,
+      isAncestor: vi.fn(),
+      setDropTarget: vi.fn(),
+    });
+
+    const badges = screen.getAllByTestId('component-badge');
+    const badgeTexts = badges.map((b) => b.textContent?.trim());
+    expect(badgeTexts).toContain('grid');
+    expect(badgeTexts).toContain('renderFile');
   });
 
   it('should NOT show toggle arrow for a file entity without children', () => {
@@ -313,27 +314,28 @@ describe('TreeView - Drag and Drop Logic', () => {
     expect(screen.getByText('standalone.md')).toBeInTheDocument();
   });
 
-  it('should NOT render children of collapsed folders initially', () => {
+  it('should render children of folders initially (expanded by default)', () => {
     render(TreeView);
 
-    // Children of FolderA (a.txt, b.txt) should not be visible
-    expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
-    expect(screen.queryByText('b.txt')).not.toBeInTheDocument();
-    expect(screen.queryByText('c.txt')).not.toBeInTheDocument();
+    // Children of FolderA (a.txt, b.txt) and FolderB (c.txt) should be visible initially
+    expect(screen.getByText('a.txt')).toBeInTheDocument();
+    expect(screen.getByText('b.txt')).toBeInTheDocument();
+    expect(screen.getByText('c.txt')).toBeInTheDocument();
   });
 
-  it('should expand a root folder when its toggle is clicked', async () => {
+  it('should collapse a root folder when its toggle is clicked', async () => {
     const { container } = render(TreeView);
 
     // Find all toggle elements - first one should be FolderA
     const toggles = container.querySelectorAll('.toggle');
     const folderAToggle = toggles[0];
 
+    // Click to collapse
     await fireEvent.click(folderAToggle);
 
-    // Children should now be visible
-    expect(screen.getByText('a.txt')).toBeInTheDocument();
-    expect(screen.getByText('b.txt')).toBeInTheDocument();
+    // Children should no longer be visible
+    expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
+    expect(screen.queryByText('b.txt')).not.toBeInTheDocument();
   });
 
   it('should show tree-node with correct indentation', () => {
@@ -537,14 +539,27 @@ describe('TreeView - Drag and Drop Integration', () => {
     await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
   });
 
+  it('should render multi-level nested folders expanded by default', () => {
+    loadFixture({
+      entities: [
+        { id: 1, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/RootFolder' } }] },
+        { id: 2, parentId: 1, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/RootFolder/SubFolder' } }] },
+        { id: 3, parentId: 2, components: [{ componentType: 'renderFile', settings: { targetPath: '/RootFolder/SubFolder/deep.txt' } }] },
+      ],
+    });
+
+    render(TreeView);
+
+    expect(screen.getByText('RootFolder')).toBeInTheDocument();
+    expect(screen.getByText('SubFolder')).toBeInTheDocument();
+    expect(screen.getByText('deep.txt')).toBeInTheDocument();
+  });
+
   it('should show drop-into indicator when dragging over middle of a folder', async () => {
     const { container } = render(TreeView);
 
-    const folderAToggle = container.querySelectorAll('.toggle')[0];
-    await fireEvent.click(folderAToggle);
-
-    const aNode = screen.getByText('a.txt').closest('.tree-node');
-    const folderANode = screen.getByText('FolderA').closest('.tree-node');
+    const aNode = screen.getByText('a.txt').closest('.tree-node')!;
+    const folderANode = screen.getByText('FolderA').closest('.tree-node')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(aNode, { dataTransfer: dt });
@@ -562,8 +577,8 @@ describe('TreeView - Drag and Drop Integration', () => {
   it('should show drop-before indicator when dragging over top of a node', async () => {
     const { container } = render(TreeView);
 
-    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
-    const folderANode = screen.getByText('FolderA').closest('.tree-node');
+    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node')!;
+    const folderANode = screen.getByText('FolderA').closest('.tree-node')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(standaloneNode, { dataTransfer: dt });
@@ -573,7 +588,7 @@ describe('TreeView - Drag and Drop Integration', () => {
     fireDragOver(folderANode, topY, dt);
     await tick();
 
-    const wrapper = folderANode.closest('.tree-node-wrapper');
+    const wrapper = folderANode.closest('.tree-node-wrapper')!;
     expect(wrapper.classList.contains('drop-before')).toBe(true);
 
     await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
@@ -583,11 +598,8 @@ describe('TreeView - Drag and Drop Integration', () => {
     const { invoke } = await import('@tauri-apps/api/core');
     const { container } = render(TreeView);
 
-    const toggles = container.querySelectorAll('.toggle');
-    await fireEvent.click(toggles[0]);
-
-    const aNode = screen.getByText('a.txt').closest('.tree-node');
-    const folderBNode = screen.getByText('FolderB').closest('.tree-node');
+    const aNode = screen.getByText('a.txt').closest('.tree-node')!;
+    const folderBNode = screen.getByText('FolderB').closest('.tree-node')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(aNode, { dataTransfer: dt });
@@ -609,11 +621,8 @@ describe('TreeView - Drag and Drop Integration', () => {
     const { invoke } = await import('@tauri-apps/api/core');
     const { container } = render(TreeView);
 
-    const toggles = container.querySelectorAll('.toggle');
-    await fireEvent.click(toggles[0]);
-
-    const aNode = screen.getByText('a.txt').closest('.tree-node');
-    const bNode = screen.getByText('b.txt').closest('.tree-node');
+    const aNode = screen.getByText('a.txt').closest('.tree-node')!;
+    const bNode = screen.getByText('b.txt').closest('.tree-node')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(aNode, { dataTransfer: dt });
@@ -635,7 +644,7 @@ describe('TreeView - Drag and Drop Integration', () => {
     const { invoke } = await import('@tauri-apps/api/core');
     const { container } = render(TreeView);
 
-    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
+    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(standaloneNode, { dataTransfer: dt });
@@ -644,8 +653,8 @@ describe('TreeView - Drag and Drop Integration', () => {
     fireDragOver(standaloneNode, rect.top + 10, dt);
     fireDrop(standaloneNode, rect.top + 10, dt);
 
-    const moveCalls = invoke.mock.calls.filter(
-      (c) => c[0] === 'move_entity' || c[0] === 'reorder_children'
+    const moveCalls = (invoke as any).mock.calls.filter(
+      (c: any) => c[0] === 'move_entity' || c[0] === 'reorder_children'
     );
     expect(moveCalls.length).toBe(0);
 
@@ -655,8 +664,8 @@ describe('TreeView - Drag and Drop Integration', () => {
   it('should clear dropTarget indicators on dragend', async () => {
     const { container } = render(TreeView);
 
-    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
-    const folderANode = screen.getByText('FolderA').closest('.tree-node');
+    const standaloneNode = screen.getByText('standalone.md').closest('.tree-node')!;
+    const folderANode = screen.getByText('FolderA').closest('.tree-node')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(standaloneNode, { dataTransfer: dt });
@@ -665,7 +674,7 @@ describe('TreeView - Drag and Drop Integration', () => {
     fireDragOver(folderANode, rect.top + 2, dt);
     await tick();
 
-    const wrapper = folderANode.closest('.tree-node-wrapper');
+    const wrapper = folderANode.closest('.tree-node-wrapper')!;
     expect(wrapper.classList.contains('drop-before')).toBe(true);
 
     await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
@@ -678,11 +687,8 @@ describe('TreeView - Drag and Drop Integration', () => {
     const { invoke } = await import('@tauri-apps/api/core');
     const { container } = render(TreeView);
 
-    const toggles = container.querySelectorAll('.toggle');
-    await fireEvent.click(toggles[0]);
-
-    const aNode = screen.getByText('a.txt').closest('.tree-node');
-    const rootContainer = container.querySelector('.tree-root');
+    const aNode = screen.getByText('a.txt').closest('.tree-node')!;
+    const rootContainer = container.querySelector('.tree-root')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(aNode, { dataTransfer: dt });
@@ -698,11 +704,8 @@ describe('TreeView - Drag and Drop Integration', () => {
     const { invoke } = await import('@tauri-apps/api/core');
     const { container } = render(TreeView);
 
-    const toggles = container.querySelectorAll('.toggle');
-    await fireEvent.click(toggles[0]);
-
-    const aNode = screen.getByText('a.txt').closest('.tree-node');
-    const folderBNode = screen.getByText('FolderB').closest('.tree-node');
+    const aNode = screen.getByText('a.txt').closest('.tree-node')!;
+    const folderBNode = screen.getByText('FolderB').closest('.tree-node')!;
 
     const dt = createMockDataTransfer();
     await fireEvent.dragStart(aNode, { dataTransfer: dt });

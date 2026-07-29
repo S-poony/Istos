@@ -65,7 +65,7 @@
   let computedOrientation = $derived.by(() => {
     if (isAudio) return 'landscape';
     if (isText || isPdf) return 'portrait';
-    return orientation;
+    return orientation ?? 'landscape';
   });
 
 
@@ -206,6 +206,10 @@
     height: 100%; /* Fill the grid cell height to match row siblings */
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+
+  :global(.grid-container > .render-file) {
+    min-height: 120px;
   }
 
   /* Explicit heights based on grid row spans to prevent stretching when rows expand.

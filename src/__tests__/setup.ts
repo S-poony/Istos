@@ -19,13 +19,7 @@ if (typeof globalThis.DOMMatrix === 'undefined') {
 
 // Polyfill canvas getContext to prevent "Not implemented" warnings in tests
 if (typeof HTMLCanvasElement !== 'undefined') {
-  const originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, ...args: any[]) {
-    try {
-      const ctx = originalGetContext.call(this, type, ...args);
-      if (ctx) return ctx;
-    } catch (e) {}
-
     if (type === '2d') {
       return {
         drawImage: () => {},

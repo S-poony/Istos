@@ -190,4 +190,54 @@ describe('RenderEntity Component', () => {
     expect(grid3).toHaveStyle('--grid-columns: 2');
     unmount3();
   });
+
+  it('should render RenderDeepEntity when depth >= 4', () => {
+    worldStore.loadFromData({
+      entities: [
+        {
+          id: 50,
+          components: [
+            { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
+            { componentType: 'renderFile', settings: { targetPath: 'deep_folder', scale: 1, position: { x: 0, y: 0 } } },
+          ],
+        },
+      ],
+    });
+
+    render(RenderEntity, { entityId: 50, depth: 4 });
+
+    const card = screen.getByTestId('deep-entity-card');
+    expect(card).toBeInTheDocument();
+    expect(screen.getByText('deep_folder')).toBeInTheDocument();
+    expect(screen.getByText('🔍 View Contents')).toBeInTheDocument();
+  });
+
+  it('should focus entity when View Contents button is clicked on deep entity card', async () => {
+    const { focusedEntityStore } = await import('../lib/stores/world');
+    worldStore.loadFromData({
+      entities: [
+        {
+          id: 60,
+          components: [
+            { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
+            { componentType: 'renderFile', settings: { targetPath: 'target_folder', scale: 1, position: { x: 0, y: 0 } } },
+          ],
+        },
+      ],
+    });
+
+    render(RenderEntity, { entityId: 60, depth: 4 });
+
+    const focusBtn = screen.getByRole('button', { name: /focus entity/i });
+    const { fireEvent } = await import('@testing-library/svelte');
+    await fireEvent.click(focusBtn);
+
+    let focusedId: number | null = null;
+    focusedEntityStore.subscribe((val) => {
+      focusedId = val;
+    })();
+
+    expect(focusedId).toBe(60);
+  });
 });
+

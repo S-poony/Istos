@@ -49,3 +49,45 @@ export const renderFileEntities = derived(worldStore, ($world) =>
 
 /// Whether we are in edit mode.
 export const editMode = writable(false);
+
+/// Desktop focused root entity store (null means trove root).
+export const focusedEntityStore = writable<EntityId | null>(null);
+
+export function focusEntity(id: EntityId | null): void {
+  focusedEntityStore.set(id);
+}
+
+/// Helper to get an entity's display name.
+export function getEntityDisplayName(world: World, id: EntityId): string {
+  const rf = world.getComponent(id, "renderFile");
+  const path = rf?.settings?.targetPath as string | undefined;
+  if (path) {
+    const normalized = path.replace(/[/\\]+$/, "");
+    const parts = normalized.split(/[/\\]/);
+    return parts[parts.length - 1] || `Entity #${id}`;
+  }
+  return `Entity #${id}`;
+}
+
+/// Derived store: breadcrumb path items [{ id: EntityId | null, name: string }].
+export const breadcrumbPath = derived([worldStore, focusedEntityStore], ([$world, $focusedId]) => {
+  const path: { id: EntityId | null; name: string }[] = [{ id: null, name: "Trove" }];
+  if ($focusedId === null || $focusedId === undefined) return path;
+
+  // Build ancestor chain upwards
+  const ancestors: { id: EntityId; name: string }[] = [];
+  let curr: EntityId | null = $focusedId;
+  const visited = new Set<EntityId>();
+
+  while (curr !== null && curr !== undefined && !visited.has(curr)) {
+    visited.add(curr);
+    const name = getEntityDisplayName($world, curr);
+    ancestors.unshift({ id: curr, name });
+    const entity = $world.entities.get(curr);
+    const pid = entity?.parentId;
+    curr = pid !== undefined && pid !== null ? pid : null;
+  }
+
+  return [...path, ...ancestors];
+});
+

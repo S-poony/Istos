@@ -16,12 +16,13 @@ This document serves as the single source of truth for the architecture, layout 
   ```
 - **Result**: Low-item and single-item folders collapse their grids to use fewer columns, allowing child items to naturally take up 100% of the available width, preserving readability and aspect ratios.
 
-### Column Overflow prevention
-- **Decision**: Avoid using `grid-template-columns: repeat(N, 1fr)` directly in nested layouts since `1fr` translates to `minmax(auto, 1fr)`. This prevents columns from shrinking below the content's intrinsic minimum size. Always use:
+### Column Overflow & Height Cropping Prevention
+- **Decision**: Avoid using `grid-template-columns: repeat(N, 1fr)` directly in nested layouts since `1fr` translates to `minmax(auto, 1fr)`. Always use:
   ```css
   grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  grid-auto-rows: minmax(min-content, max-content);
   ```
-  to allow columns to shrink to fit the parent boundaries.
+- **Nested Wrapper Height**: For nested containers (`.entity-wrapper:not(.root)`), specify `min-height: fit-content;` alongside `height: 100%;` to ensure inner elements and grid cells never get cropped at container boundaries. Set base `min-height: 120px;` on `:global(.grid-container > .render-file)` to prevent unclassified or placeholder file cards from collapsing.
 
 ---
 
@@ -78,3 +79,21 @@ This document serves as the single source of truth for the architecture, layout 
   fireEvent(element, event);
   ```
 - **Reactivity Flush**: Svelte 5 renders updates asynchronously. Always use `await tick()` in unit tests after firing drop/drag events to allow Svelte scheduler to flush updates before making DOM class assertions.
+
+---
+
+## 6. Deep Entity Nesting, Desktop Focus Navigation & TreeView Defaults
+
+### Deep Entity Summary Component (`RenderDeepEntity`)
+- **Decision**: Define a maximum inline nesting depth (`MAX_DEPTH = 4`). When an entity on the desktop reaches or exceeds depth 4, render `RenderDeepEntity` instead of recursively nesting standard `Grid` components into tiny fractions of space.
+- **Summary Features**: `RenderDeepEntity` renders a compact summary card with icon, display name, attached component badges, child count badge, and a "🔍 View Contents" focus button.
+
+### Desktop Focus & Breadcrumb Navigation
+- **Decision**: Clicking "View Contents" on a deep entity card focuses the desktop root onto that entity (`focusedEntityStore`).
+- **Breadcrumb Navigation Bar**: Render a top breadcrumb navigation bar (`Trove > Parent > Child`) on the Desktop when an entity is focused, allowing one-click navigation back to any ancestor or the trove root (`focusedEntityStore = null`).
+
+### TreeView Defaults & Visual Indentation
+- **Expanded by Default**: Initialize `TreeNode` state `expanded` to `true` by default so all folder hierarchies are immediately visible while preserving manual collapse/expand toggles.
+- **Component Badges**: Render pills/badges in `TreeNode` displaying all attached component types (e.g. `grid`, `renderFile`).
+- **Visual Indentation**: Calculate node padding-left as `depth * 20px + 8px` and render dashed guide lines (`border-left`) on nested children wrappers to clearly indicate nesting levels in the tree hierarchy.
+

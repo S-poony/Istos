@@ -123,3 +123,13 @@ The next implementation should address the following as one coordinated UI/layou
 - **Rust Formatting Tool Availability**:
   - *Mistake*: Running `cargo fmt -- --check && cargo test` assumed the `rustfmt` component was installed, so the command stopped before tests ran.
   - *Solution*: Run `cargo test` separately when formatting tooling is unavailable. Install it later with `rustup component add rustfmt` if formatting checks are required.
+
+- **Entity Components Map Query vs Entity Instance**:
+  - *Mistake*: Attempting to access attached entity components via `entity.components` on `worldStore.entities.get(id)` fails at runtime with `TypeError: Cannot read properties of undefined (reading 'map')` because `Entity` instances only store `id` and `parentId`.
+  - *Solution*: Always query components using `$worldStore.getComponents(id)` (or `world.getComponents(id)`), which correctly retrieves `Component[]` from `world.components`.
+
+- **Flex Container Child Shrinking on Desktop**:
+  - *Mistake*: Setting `display: flex; flex-direction: column;` on `.desktop-container` with `height: 100%` causes flexbox to compress all root entity wrappers (`.entity-wrapper`) vertically due to default `flex-shrink: 1`, squishing multiple desktop items into 20px-height horizontal strips.
+  - *Solution*: Set `flex-shrink: 0; height: fit-content;` on `.entity-wrapper.root` and add `overflow-y: auto;` to `.desktop-container` so desktop entities retain their full natural heights and scroll smoothly when items exceed screen height.
+
+

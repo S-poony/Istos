@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { editMode, worldStore } from "../stores/world";
+  import { editMode, worldStore, focusedEntityStore } from "../stores/world";
   import RenderEntity from "./RenderEntity.svelte";
 
   interface Props {
@@ -7,12 +7,13 @@
     columns: number;
     gap: number;
     draggable: boolean;
+    depth?: number;
   }
 
-  let { entityId, columns, gap, draggable }: Props = $props();
+  let { entityId, columns, gap, draggable, depth = 0 }: Props = $props();
 
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
-  let isRoot = $derived(parentId === undefined || parentId === null);
+  let isRoot = $derived(parentId === undefined || parentId === null || $focusedEntityStore === entityId);
 
   let entityName = $derived.by(() => {
     // Try to get a display name from a renderFile component on this entity
@@ -54,7 +55,7 @@
     style="--grid-columns: {gridColumns}; --grid-gap: {gap}px;"
   >
     {#each children as childId (childId)}
-      <RenderEntity entityId={childId} />
+      <RenderEntity entityId={childId} depth={depth + 1} />
     {/each}
   </div>
 </div>
@@ -76,14 +77,16 @@
     transition: border-color 0.2s, box-shadow 0.2s;
   }
 
-  /* Root entities on the desktop only take the space they need */
+  /* Root entities on the desktop only take the space they need and must never shrink */
   .entity-wrapper.root {
     height: fit-content;
+    flex-shrink: 0;
   }
 
-  /* Nested entities fill their parent grid cell */
+  /* Nested entities fill their parent grid cell, preserving min-height for contents */
   .entity-wrapper:not(.root) {
     height: 100%;
+    min-height: fit-content;
   }
 
   .entity-wrapper:hover {
@@ -121,7 +124,7 @@
   .grid-container {
     display: grid;
     grid-template-columns: repeat(var(--grid-columns, 4), minmax(0, 1fr));
-    grid-auto-rows: auto;
+    grid-auto-rows: minmax(min-content, max-content);
     gap: var(--grid-gap, 8px);
     width: 100%;
     flex: 1;

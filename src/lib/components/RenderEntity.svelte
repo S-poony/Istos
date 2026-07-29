@@ -2,13 +2,18 @@
   import { worldStore } from "../stores/world";
   import Grid from "./Grid.svelte";
   import RenderFile from "./RenderFile.svelte";
+  import RenderDeepEntity from "./RenderDeepEntity.svelte";
+
+  const MAX_DEPTH = 4;
 
   interface Props {
     entityId: number;
+    depth?: number;
   }
 
-  let { entityId }: Props = $props();
+  let { entityId, depth = 0 }: Props = $props();
 
+  let isDeep = $derived(depth >= MAX_DEPTH);
   let hasGrid = $derived($worldStore.getComponent(entityId, "grid") !== undefined);
   let hasRenderFile = $derived($worldStore.getComponent(entityId, "renderFile") !== undefined);
 
@@ -23,12 +28,15 @@
   });
 </script>
 
-{#if hasGrid && gridSettings}
+{#if isDeep}
+  <RenderDeepEntity {entityId} {depth} />
+{:else if hasGrid && gridSettings}
   <Grid
     {entityId}
     columns={gridSettings.columns}
     gap={gridSettings.gap}
     draggable={gridSettings.draggable}
+    {depth}
   />
 {:else if hasRenderFile && renderFileSettings}
   <RenderFile
@@ -38,3 +46,4 @@
     position={renderFileSettings.position}
   />
 {/if}
+
