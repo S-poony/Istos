@@ -23,7 +23,7 @@
   }
 </script>
 
-<div class="deep-entity-card" data-testid="deep-entity-card">
+<div class="deep-entity-card" data-testid="deep-entity-card" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); handleFocus(); }} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); handleFocus(); } }}>
   <div class="header">
     <span class="icon">📦</span>
     <span class="title" title={entityName}>{entityName}</span>
@@ -33,14 +33,9 @@
     {#if childrenCount > 0}
       <span class="badge children-count">{childrenCount} item{childrenCount === 1 ? '' : 's'}</span>
     {/if}
-    {#each components as comp}
-      <span class="badge comp-badge">{comp}</span>
-    {/each}
   </div>
 
-  <button class="focus-btn" onclick={handleFocus} aria-label="Focus entity">
-    🔍 View Contents
-  </button>
+
 </div>
 
 <style>
@@ -111,20 +106,7 @@
     border: 1px solid rgba(124, 58, 237, 0.4);
   }
 
-  .focus-btn {
-    align-self: flex-start;
-    margin-top: 2px;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 500;
-    color: #ffffff;
-    background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: transform 0.15s ease, filter 0.15s ease;
-  }
-
+  
   .focus-btn:hover {
     filter: brightness(1.15);
     transform: translateY(-1px);

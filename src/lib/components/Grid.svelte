@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { editMode, worldStore, focusedEntityStore } from "../stores/world";
+  import { editMode, worldStore, focusedEntityStore, focusEntity } from "../stores/world";
   import RenderEntity from "./RenderEntity.svelte";
 
   interface Props {
@@ -46,6 +46,7 @@
   class="entity-wrapper"
   class:root={isRoot}
   class:draggable={draggable}
+  onclick={() => focusEntity(entityId)}
 >
   <div class="entity-header">
     <span class="entity-name">{entityName}</span>

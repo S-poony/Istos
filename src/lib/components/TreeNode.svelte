@@ -170,15 +170,6 @@
       <span class="deep-badge" data-testid="deep-badge" title="Too deeply nested to show inline">
         📦 {childrenCount} item{childrenCount === 1 ? '' : 's'} · collapsed
       </span>
-      <button
-        type="button"
-        class="focus-btn"
-        data-testid="deep-focus-btn"
-        onclick={(e) => { e.stopPropagation(); focusEntity(id); }}
-        aria-label="Focus entity"
-      >
-        🔍 View
-      </button>
     {/if}
   </div>
 
@@ -338,24 +329,6 @@
     font-weight: 500;
     margin-left: 6px;
     white-space: nowrap;
-  }
-
-  .focus-btn {
-    font-size: 10px;
-    padding: 1px 8px;
-    margin-left: 4px;
-    border-radius: 3px;
-    border: none;
-    background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
-    color: #ffffff;
-    font-weight: 500;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: filter 0.15s ease;
-  }
-
-  .focus-btn:hover {
-    filter: brightness(1.2);
   }
 
   .children {

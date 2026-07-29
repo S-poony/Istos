@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { editMode, worldStore } from "../stores/world";
+  import { editMode, worldStore, focusEntity } from "../stores/world";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import RenderMarkdown from "./RenderMarkdown.svelte";
   import RenderPdf from "./RenderPdf.svelte";
@@ -141,6 +141,7 @@
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
   class:editable={$editMode}
+  onclick={(e) => { e.stopPropagation(); focusEntity(entityId); }}
 >
   {#if hasError}
     <div class="file-placeholder error">
