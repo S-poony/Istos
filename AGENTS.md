@@ -15,7 +15,9 @@ It is recommended to update AGENTS.md after each task to remove obsolete entries
 
 The next implementation should address the following as one coordinated UI/layout task. Record the finalized rules in the existing root `DESIGN.md`.
 
-1. **Responsive, reachable PDF controls**:
+1. **Fixing PDFs issues**:
+   - Bug fixes: zoom levels blocked above and under certain values, scroll bar don't allow to the full left or top/bottom of a document when it is zoomed, pdfs should have a default aspect ratio corresponding to their first page
+   - the pdf viewer should be a component attached to pdfs, "sequenceVisualizer" or something like that, given by default to pdfs, that allows any entity to render its children as a sequence of pages.
    - Keep all navigation and zoom actions reachable in small containers. Prefer compact controls plus horizontal toolbar scrolling/wrapping; do not hide essential zoom controls at narrow container-query breakpoints.
    - Remove conflicting PDF minimum-height behavior that can push the toolbar outside a grid cell.
    - Measure the usable canvas viewport width and height after toolbar, padding, and borders are accounted for.
