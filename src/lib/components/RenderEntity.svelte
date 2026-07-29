@@ -3,8 +3,8 @@
   import Grid from "./Grid.svelte";
   import RenderFile from "./RenderFile.svelte";
   import RenderDeepEntity from "./RenderDeepEntity.svelte";
+  import { MAX_DEPTH } from "../constants";
 
-  const MAX_DEPTH = 4;
 
   interface Props {
     entityId: number;

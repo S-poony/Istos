@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { worldStore } from "../stores/world";
+  import { worldStore, focusEntity } from "../stores/world";
+  import { MAX_DEPTH } from "../constants";
   import type { EntityId } from "../types";
   import TreeNode from "./TreeNode.svelte";
 
@@ -83,6 +84,10 @@
   /// Pre-compute ordered children for the each block
   let orderedChildren = $derived($worldStore.getOrderedChildren(id));
 
+  /// Too deeply nested to render inline (matches RenderEntity collapse limit)
+  let isDeep = $derived(depth >= MAX_DEPTH);
+  let childrenCount = $derived(orderedChildren.length);
+
   function toggleExpand(e: MouseEvent) {
     e.stopPropagation();
     if (hasChildren || folder) {
@@ -160,9 +165,24 @@
         {/each}
       </span>
     {/if}
+
+    {#if isDeep && childrenCount > 0}
+      <span class="deep-badge" data-testid="deep-badge" title="Too deeply nested to show inline">
+        📦 {childrenCount} item{childrenCount === 1 ? '' : 's'} · collapsed
+      </span>
+      <button
+        type="button"
+        class="focus-btn"
+        data-testid="deep-focus-btn"
+        onclick={(e) => { e.stopPropagation(); focusEntity(id); }}
+        aria-label="Focus entity"
+      >
+        🔍 View
+      </button>
+    {/if}
   </div>
 
-  {#if expanded && (folder || orderedChildren.length > 0)}
+  {#if expanded && !isDeep && (folder || orderedChildren.length > 0)}
     <div
       class="children"
       role="group"
@@ -306,6 +326,36 @@
     color: #c4b5fd;
     border: 1px solid rgba(124, 58, 237, 0.35);
     font-weight: 500;
+  }
+
+  .deep-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+    border: 1px dashed rgba(59, 130, 246, 0.45);
+    font-weight: 500;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+
+  .focus-btn {
+    font-size: 10px;
+    padding: 1px 8px;
+    margin-left: 4px;
+    border-radius: 3px;
+    border: none;
+    background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+    color: #ffffff;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.15s ease;
+  }
+
+  .focus-btn:hover {
+    filter: brightness(1.2);
   }
 
   .children {

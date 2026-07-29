@@ -721,3 +721,85 @@ describe('TreeView - Drag and Drop Integration', () => {
     });
   });
 });
+
+describe('TreeNode - Deep Nesting Collapse', () => {
+  function isFolder(id: number): boolean {
+    return worldStore.getWorld().getComponent(id, 'grid') !== undefined;
+  }
+
+  function makeProps(id: number, depth: number) {
+    return {
+      id,
+      draggedId: null,
+      dropTarget: null,
+      isFolder,
+      onDragStart: vi.fn(),
+      onDragOver: vi.fn(),
+      onDragLeave: vi.fn(),
+      onDrop: vi.fn(),
+      onDragEnd: vi.fn(),
+      depth,
+      isAncestor: vi.fn(),
+      setDropTarget: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    // Chain of nested folders: 1 > 2 > 3 > 4 > 5 > file
+    loadFixture({
+      entities: [
+        { id: 1, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/L1' } }] },
+        { id: 2, parentId: 1, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/L1/L2' } }] },
+        { id: 3, parentId: 2, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/L1/L2/L3' } }] },
+        { id: 4, parentId: 3, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/L1/L2/L3/L4' } }] },
+        { id: 5, parentId: 4, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/L1/L2/L3/L4/L5' } }] },
+        { id: 6, parentId: 5, components: [{ componentType: 'renderFile', settings: { targetPath: '/L1/L2/L3/L4/L5/deep.txt' } }] },
+      ],
+    });
+  });
+
+  it('should show a collapsed badge and not recurse children at depth >= MAX_DEPTH', () => {
+    const { container } = render(TreeNode, makeProps(5, 4));
+
+    // Collapsed badge visible with child count
+    const badge = screen.getByTestId('deep-badge');
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).toContain('1 item');
+
+    // Children must NOT be rendered inline
+    expect(container.querySelector('.children')).toBeNull();
+    expect(screen.queryByText('deep.txt')).not.toBeInTheDocument();
+  });
+
+  it('should still recurse normally below MAX_DEPTH', () => {
+    const { container } = render(TreeNode, makeProps(4, 3));
+
+    const rootNode = container.querySelector('.tree-node');
+    expect(rootNode.querySelector('[data-testid=deep-badge]')).toBeNull();
+    expect(container.querySelector('.children')).toBeInTheDocument();
+  });
+
+  it('should render the collapsed badge on the deeply nested node within a full tree', () => {
+    render(TreeView);
+
+    // Node L5 sits at depth 4 in the tree and should be collapsed
+    expect(screen.getByText('L1')).toBeInTheDocument();
+    expect(screen.getByText('L4')).toBeInTheDocument();
+    expect(screen.getByText('L5')).toBeInTheDocument();
+    expect(screen.getByTestId('deep-badge')).toBeInTheDocument();
+    expect(screen.queryByText('deep.txt')).not.toBeInTheDocument();
+  });
+
+  it('should call focusEntity when the focus button is clicked', async () => {
+    const { focusedEntityStore } = await import('../lib/stores/world');
+    render(TreeNode, makeProps(5, 4));
+
+    const btn = screen.getByTestId('deep-focus-btn');
+    await fireEvent.click(btn);
+
+    let focused: unknown;
+    const unsub = focusedEntityStore.subscribe((v) => (focused = v));
+    unsub();
+    expect(focused).toBe(5);
+  });
+});

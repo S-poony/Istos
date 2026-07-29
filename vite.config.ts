@@ -19,10 +19,8 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    pool: 'vmForks',
     environment: 'jsdom',
     setupFiles: ['./src/__tests__/setup.ts'],
-    testTransformMode: {
-      web: ['**/*.svelte'],
-    },
   },
 });
