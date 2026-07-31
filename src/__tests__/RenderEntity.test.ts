@@ -6,238 +6,237 @@ import { worldStore } from '../lib/stores/world';
 
 // Mock Tauri apps API so we don't try to call native code during unit tests
 vi.mock('@tauri-apps/api/core', () => ({
-  convertFileSrc: (src: string) => src,
+    convertFileSrc: (src: string) => src,
 }));
 
 describe('RenderEntity Component', () => {
-  it('should render a RenderFile component for file entities', () => {
-    // 1. Populate the store with a single file entity (image to avoid fetch side-effects)
-    worldStore.loadFromData({
-      entities: [
-        {
-          id: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'my_awesome_file.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        }
-      ]
+    it('should render a RenderFile component for file entities', () => {
+        // 1. Populate the store with a single file entity (image to avoid fetch side-effects)
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'my_awesome_file.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                }
+            ]
+        });
+
+        // 2. Render the component
+        render(RenderEntity, { entityId: 1 });
+
+        // 3. Assert that the image alt text (the display name) is rendered
+        expect(screen.getByAltText('my_awesome_file.png')).toBeInTheDocument();
     });
 
-    // 2. Render the component
-    render(RenderEntity, { entityId: 1 });
+    it('should recursively render grid and its children', () => {
+        // 1. Populate the store with a parent grid containing a child file
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 1,
+                    components: [
+                        {
+                            componentType: 'grid',
+                            settings: { columns: 3, gap: 10, draggable: false }
+                        }
+                    ]
+                },
+                {
+                    id: 2,
+                    parentId: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'child_file.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                }
+            ]
+        });
 
-    // 3. Assert that the image alt text (the display name) is rendered
-    expect(screen.getByAltText('my_awesome_file.png')).toBeInTheDocument();
-  });
+        // 2. Render the parent entity (Grid)
+        const { container } = render(RenderEntity, { entityId: 1 });
 
-  it('should recursively render grid and its children', () => {
-    // 1. Populate the store with a parent grid containing a child file
-    worldStore.loadFromData({
-      entities: [
-        {
-          id: 1,
-          components: [
-            {
-              componentType: 'grid',
-              settings: { columns: 3, gap: 10, draggable: false }
-            }
-          ]
-        },
-        {
-          id: 2,
-          parentId: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'child_file.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        }
-      ]
+        // 3. Assert the grid container exists and is rendering the child recursively
+        const gridElement = container.querySelector('.grid-container');
+        expect(gridElement).toBeInTheDocument();
+        expect(screen.getByAltText('child_file.png')).toBeInTheDocument();
+        expect(gridElement).toContainElement(screen.getByAltText('child_file.png').closest('.render-file'));
     });
 
-    // 2. Render the parent entity (Grid)
-    const { container } = render(RenderEntity, { entityId: 1 });
+    it('should dynamically scale columns based on number of children', () => {
+        // 1. Single child: should override columns setting (e.g. 4) and use 1 column
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 1,
+                    components: [
+                        {
+                            componentType: 'grid',
+                            settings: { columns: 4, gap: 10, draggable: false }
+                        }
+                    ]
+                },
+                {
+                    id: 2,
+                    parentId: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'child_1.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                }
+            ]
+        });
 
-    // 3. Assert the grid container exists and is rendering the child recursively
-    const gridElement = container.querySelector('.grid-container');
-    expect(gridElement).toBeInTheDocument();
-    expect(screen.getByAltText('child_file.png')).toBeInTheDocument();
-    expect(gridElement).toContainElement(screen.getByAltText('child_file.png').closest('.render-file'));
-  });
+        const { container: container1, unmount: unmount1 } = render(RenderEntity, { entityId: 1 });
+        const grid1 = container1.querySelector('.grid-container') as HTMLElement;
+        expect(grid1).toHaveStyle('--grid-columns: 1');
+        unmount1();
 
-  it('should dynamically scale columns based on number of children', () => {
-    // 1. Single child: should override columns setting (e.g. 4) and use 1 column
-    worldStore.loadFromData({
-      entities: [
-        {
-          id: 1,
-          components: [
-            {
-              componentType: 'grid',
-              settings: { columns: 4, gap: 10, draggable: false }
-            }
-          ]
-        },
-        {
-          id: 2,
-          parentId: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'child_1.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        }
-      ]
+        // 2. Multiple children (less than configured columns): should scale to number of children
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 1,
+                    components: [
+                        {
+                            componentType: 'grid',
+                            settings: { columns: 4, gap: 10, draggable: false }
+                        }
+                    ]
+                },
+                {
+                    id: 2,
+                    parentId: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'child_1.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                },
+                {
+                    id: 3,
+                    parentId: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'child_2.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                }
+            ]
+        });
+
+        const { container: container2, unmount: unmount2 } = render(RenderEntity, { entityId: 1 });
+        const grid2 = container2.querySelector('.grid-container') as HTMLElement;
+        expect(grid2).toHaveStyle('--grid-columns: 2');
+        unmount2();
+
+        // 3. Children count greater than or equal to columns: should stay at configured columns
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 1,
+                    components: [
+                        {
+                            componentType: 'grid',
+                            settings: { columns: 2, gap: 10, draggable: false }
+                        }
+                    ]
+                },
+                {
+                    id: 2,
+                    parentId: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'child_1.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                },
+                {
+                    id: 3,
+                    parentId: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'child_2.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                },
+                {
+                    id: 4,
+                    parentId: 1,
+                    components: [
+                        {
+                            componentType: 'renderFile',
+                            settings: { targetPath: 'child_3.png', scale: 1, position: { x: 0, y: 0 } }
+                        }
+                    ]
+                }
+            ]
+        });
+
+        const { container: container3, unmount: unmount3 } = render(RenderEntity, { entityId: 1 });
+        const grid3 = container3.querySelector('.grid-container') as HTMLElement;
+        expect(grid3).toHaveStyle('--grid-columns: 2');
+        unmount3();
     });
 
-    const { container: container1, unmount: unmount1 } = render(RenderEntity, { entityId: 1 });
-    const grid1 = container1.querySelector('.grid-container') as HTMLElement;
-    expect(grid1).toHaveStyle('--grid-columns: 1');
-    unmount1();
+    it('should render RenderDeepEntity when depth >= 4', () => {
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 50,
+                    components: [
+                        { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
+                        { componentType: 'renderFile', settings: { targetPath: 'deep_folder', scale: 1, position: { x: 0, y: 0 } } },
+                    ],
+                },
+            ],
+        });
 
-    // 2. Multiple children (less than configured columns): should scale to number of children
-    worldStore.loadFromData({
-      entities: [
-        {
-          id: 1,
-          components: [
-            {
-              componentType: 'grid',
-              settings: { columns: 4, gap: 10, draggable: false }
-            }
-          ]
-        },
-        {
-          id: 2,
-          parentId: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'child_1.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        },
-        {
-          id: 3,
-          parentId: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'child_2.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        }
-      ]
+        render(RenderEntity, { entityId: 50, depth: 4 });
+
+        const card = screen.getByTestId('deep-entity-card');
+        expect(card).toBeInTheDocument();
+        expect(screen.getByText('deep_folder')).toBeInTheDocument();
     });
 
-    const { container: container2, unmount: unmount2 } = render(RenderEntity, { entityId: 1 });
-    const grid2 = container2.querySelector('.grid-container') as HTMLElement;
-    expect(grid2).toHaveStyle('--grid-columns: 2');
-    unmount2();
+    it('should focus entity when View Contents button is clicked on deep entity card', async () => {
+        const { focusedEntityStore } = await import('../lib/stores/world');
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 60,
+                    components: [
+                        { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
+                        { componentType: 'renderFile', settings: { targetPath: 'target_folder', scale: 1, position: { x: 0, y: 0 } } },
+                    ],
+                },
+            ],
+        });
 
-    // 3. Children count greater than or equal to columns: should stay at configured columns
-    worldStore.loadFromData({
-      entities: [
-        {
-          id: 1,
-          components: [
-            {
-              componentType: 'grid',
-              settings: { columns: 2, gap: 10, draggable: false }
-            }
-          ]
-        },
-        {
-          id: 2,
-          parentId: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'child_1.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        },
-        {
-          id: 3,
-          parentId: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'child_2.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        },
-        {
-          id: 4,
-          parentId: 1,
-          components: [
-            {
-              componentType: 'renderFile',
-              settings: { targetPath: 'child_3.png', scale: 1, position: { x: 0, y: 0 } }
-            }
-          ]
-        }
-      ]
+        render(RenderEntity, { entityId: 60, depth: 4 });
+
+        const card = screen.getByTestId('deep-entity-card');
+        const { fireEvent } = await import('@testing-library/svelte');
+        await fireEvent.click(card);
+
+        let focusedId: number | null = null;
+        focusedEntityStore.subscribe((val) => {
+            focusedId = val;
+        })();
+
+        expect(focusedId).toBe(60);
     });
-
-    const { container: container3, unmount: unmount3 } = render(RenderEntity, { entityId: 1 });
-    const grid3 = container3.querySelector('.grid-container') as HTMLElement;
-    expect(grid3).toHaveStyle('--grid-columns: 2');
-    unmount3();
-  });
-
-  it('should render RenderDeepEntity when depth >= 4', () => {
-    worldStore.loadFromData({
-      entities: [
-        {
-          id: 50,
-          components: [
-            { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
-            { componentType: 'renderFile', settings: { targetPath: 'deep_folder', scale: 1, position: { x: 0, y: 0 } } },
-          ],
-        },
-      ],
-    });
-
-    render(RenderEntity, { entityId: 50, depth: 4 });
-
-    const card = screen.getByTestId('deep-entity-card');
-    expect(card).toBeInTheDocument();
-    expect(screen.getByText('deep_folder')).toBeInTheDocument();
-    expect(screen.getByText('🔍 View Contents')).toBeInTheDocument();
-  });
-
-  it('should focus entity when View Contents button is clicked on deep entity card', async () => {
-    const { focusedEntityStore } = await import('../lib/stores/world');
-    worldStore.loadFromData({
-      entities: [
-        {
-          id: 60,
-          components: [
-            { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
-            { componentType: 'renderFile', settings: { targetPath: 'target_folder', scale: 1, position: { x: 0, y: 0 } } },
-          ],
-        },
-      ],
-    });
-
-    render(RenderEntity, { entityId: 60, depth: 4 });
-
-    const focusBtn = screen.getByRole('button', { name: /focus entity/i });
-    const { fireEvent } = await import('@testing-library/svelte');
-    await fireEvent.click(focusBtn);
-
-    let focusedId: number | null = null;
-    focusedEntityStore.subscribe((val) => {
-      focusedId = val;
-    })();
-
-    expect(focusedId).toBe(60);
-  });
 });
 

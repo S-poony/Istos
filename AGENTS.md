@@ -134,4 +134,16 @@ The next implementation should address the following as one coordinated UI/layou
   - *Mistake*: Setting `display: flex; flex-direction: column;` on `.desktop-container` with `height: 100%` causes flexbox to compress all root entity wrappers (`.entity-wrapper`) vertically due to default `flex-shrink: 1`, squishing multiple desktop items into 20px-height horizontal strips.
   - *Solution*: Set `flex-shrink: 0; height: fit-content;` on `.entity-wrapper.root` and add `overflow-y: auto;` to `.desktop-container` so desktop entities retain their full natural heights and scroll smoothly when items exceed screen height.
 
+- **Folder Click Bubbling Prevents Entering Nested Folders (Live Mode)**:
+  - *Mistake*: `Grid.svelte`'s `.entity-wrapper` click handler called `focusEntity(entityId)` without `e.stopPropagation()`. Clicking a nested folder (B inside A) fired `focusEntity(B)` then bubbled up to A's wrapper which fired `focusEntity(A)` last and won, so B could not be entered whenever it had a sibling at the same nesting level. Root folders worked because they have no ancestor wrapper.
+  - *Solution*: Match `RenderFile.svelte` and call `onclick={(e) => { e.stopPropagation(); focusEntity(entityId); }}` on the wrapper.
+
+- **Tree View Deep-Collapse Should Not Apply (Edit/Tree Mode)**:
+  - *Mistake*: `TreeNode.svelte` reused the live-mode `MAX_DEPTH` collapse limit (`isDeep`) to hide children and show a "collapsed" badge in the tree view, even though the tree is finite and safe to fully expand.
+  - *Solution*: Removed the `isDeep` guard and `deep-badge` from `TreeNode.svelte` (and its unused `MAX_DEPTH` import). `MAX_DEPTH` collapse now applies only to live mode (`RenderEntity`/`RenderDeepEntity`). Deep items remain visible and recursively expanded subject to manual collapse.
+
+- **Nested/Deep Cards Piling Up in Live Mode**:
+  - *Mistake*: `.entity-wrapper:not(.root)` used `height: 100%` with `min-height: fit-content` inside grid rows sized by `minmax(min-content, max-content)`, producing ambiguous percentage heights that collapsed nested/deep folders into tall empty boxes that overflowed their `overflow: hidden` parent.
+  - *Solution*: Set nested wrappers to `height: auto; min-height: 0;` and let grid `align-items: stretch` control row height, so deep cards lay out inside their cells instead of piling up.
+
 

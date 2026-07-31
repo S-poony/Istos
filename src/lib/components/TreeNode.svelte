@@ -1,340 +1,342 @@
 <script lang="ts">
-  import { worldStore, focusEntity } from "../stores/world";
-  import { MAX_DEPTH } from "../constants";
-  import type { EntityId } from "../types";
-  import TreeNode from "./TreeNode.svelte";
+    import { worldStore, focusEntity } from "../stores/world";
+    import type { EntityId } from "../types";
+    import TreeNode from "./TreeNode.svelte";
 
-  interface Props {
-    id: EntityId;
-    draggedId: EntityId | null;
-    dropTarget: {
-      type: "between" | "into";
-      entityId: EntityId;
-      position: "before" | "after";
-    } | null;
-    isFolder: (id: EntityId) => boolean;
-    onDragStart: (e: DragEvent, id: EntityId) => void;
-    onDragOver: (e: DragEvent, id: EntityId) => void;
-    onDragLeave: (e: DragEvent) => void;
-    onDrop: (e: DragEvent, id: EntityId, explicitTarget?: Props["dropTarget"]) => void;
-    onDragEnd: () => void;
-    depth: number;
-    isAncestor: (childId: EntityId, parentId: EntityId) => boolean;
-    setDropTarget: (target: typeof dropTarget) => void;
-  }
-
-  let {
-    id,
-    draggedId,
-    dropTarget,
-    isFolder,
-    onDragStart,
-    onDragOver,
-    onDragLeave,
-    onDrop,
-    onDragEnd,
-    depth,
-    isAncestor,
-    setDropTarget,
-  }: Props = $props();
-
-  let expanded = $state(true);
-
-  /// Display name
-  let displayName = $derived.by(() => {
-    const rf = $worldStore.getComponent(id, "renderFile");
-    const path = rf?.settings?.targetPath as string | undefined;
-    if (path) {
-      const normalizedPath = path.replace(/[/\\]+$/, "");
-      const parts = normalizedPath.split(/[/\\]/);
-      return parts[parts.length - 1] || `Entity #${id}`;
+    interface Props {
+        id: EntityId;
+        draggedId: EntityId | null;
+        dropTarget: {
+            type: "between" | "into";
+            entityId: EntityId;
+            position: "before" | "after";
+        } | null;
+        isFolder: (id: EntityId) => boolean;
+        onDragStart: (e: DragEvent, id: EntityId) => void;
+        onDragOver: (e: DragEvent, id: EntityId) => void;
+        onDragLeave: (e: DragEvent) => void;
+        onDrop: (
+            e: DragEvent,
+            id: EntityId,
+            explicitTarget?: Props["dropTarget"],
+        ) => void;
+        onDragEnd: () => void;
+        depth: number;
+        isAncestor: (childId: EntityId, parentId: EntityId) => boolean;
+        setDropTarget: (target: typeof dropTarget) => void;
     }
-    return `Entity #${id}`;
-  });
 
-  /// Attached component types
-  let attachedComponents = $derived.by(() => {
-    return $worldStore.getComponents(id).map((c) => c.componentType);
-  });
+    let {
+        id,
+        draggedId,
+        dropTarget,
+        isFolder,
+        onDragStart,
+        onDragOver,
+        onDragLeave,
+        onDrop,
+        onDragEnd,
+        depth,
+        isAncestor,
+        setDropTarget,
+    }: Props = $props();
 
-  /// Is this a directory/folder?
-  let folder = $derived(isFolder(id));
+    let expanded = $state(true);
 
-  /// Is the item expandable?
-  let hasChildren = $derived.by(() => {
-    const children = $worldStore.getChildren(id);
-    return children.length > 0;
-  });
+    /// Display name
+    let displayName = $derived.by(() => {
+        const rf = $worldStore.getComponent(id, "renderFile");
+        const path = rf?.settings?.targetPath as string | undefined;
+        if (path) {
+            const normalizedPath = path.replace(/[/\\]+$/, "");
+            const parts = normalizedPath.split(/[/\\]/);
+            return parts[parts.length - 1] || `Entity #${id}`;
+        }
+        return `Entity #${id}`;
+    });
 
-  /// File icon
-  let icon = $derived.by(() => {
-    // Audio types
-    if (/\.(mp3|wav|ogg|flac|aac|m4a)$/i.test(displayName)) return "🎵";
-    // Video types
-    if (/\.(mp4|webm|avi|mov|mkv)$/i.test(displayName)) return "🎬";
-    // Image types
-    if (/\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i.test(displayName)) return "🖼️";
-    // Text/code types
-    if (/\.(txt|md|json|js|ts|csv|html|css|rs|yaml|yml|xml|log|ini|cfg)$/i.test(displayName)) return "📝";
-    // Folders
-    if (folder) return "📁";
-    return "📄";
-  });
+    /// Attached component types
+    let attachedComponents = $derived.by(() => {
+        return $worldStore.getComponents(id).map((c) => c.componentType);
+    });
 
-  /// Pre-compute ordered children for the each block
-  let orderedChildren = $derived($worldStore.getOrderedChildren(id));
+    /// Is this a directory/folder?
+    let folder = $derived(isFolder(id));
 
-  /// Too deeply nested to render inline (matches RenderEntity collapse limit)
-  let isDeep = $derived(depth >= MAX_DEPTH);
-  let childrenCount = $derived(orderedChildren.length);
+    /// Is the item expandable?
+    let hasChildren = $derived.by(() => {
+        const children = $worldStore.getChildren(id);
+        return children.length > 0;
+    });
 
-  function toggleExpand(e: MouseEvent) {
-    e.stopPropagation();
-    if (hasChildren || folder) {
-      expanded = !expanded;
+    /// File icon
+    let icon = $derived.by(() => {
+        // Audio types
+        if (/\.(mp3|wav|ogg|flac|aac|m4a)$/i.test(displayName)) return "🎵";
+        // Video types
+        if (/\.(mp4|webm|avi|mov|mkv)$/i.test(displayName)) return "🎬";
+        // Image types
+        if (/\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i.test(displayName))
+            return "🖼️";
+        // Text/code types
+        if (
+            /\.(txt|md|json|js|ts|csv|html|css|rs|yaml|yml|xml|log|ini|cfg)$/i.test(
+                displayName,
+            )
+        )
+            return "📝";
+        // Folders
+        if (folder) return "📁";
+        return "📄";
+    });
+
+    /// Pre-compute ordered children for the each block
+    let orderedChildren = $derived($worldStore.getOrderedChildren(id));
+
+    function toggleExpand(e: MouseEvent) {
+        e.stopPropagation();
+        if (hasChildren || folder) {
+            expanded = !expanded;
+        }
     }
-  }
 
-  function onNodeDragStart(e: DragEvent) {
-    onDragStart(e, id);
-  }
+    function onNodeDragStart(e: DragEvent) {
+        onDragStart(e, id);
+    }
 
-  function onNodeDragOver(e: DragEvent) {
-    onDragOver(e, id);
-  }
+    function onNodeDragOver(e: DragEvent) {
+        onDragOver(e, id);
+    }
 
-  function onNodeDrop(e: DragEvent) {
-    onDrop(e, id);
-  }
+    function onNodeDrop(e: DragEvent) {
+        onDrop(e, id);
+    }
 
-  /// Drop indicator classes
-  let dropBefore = $derived(
-    dropTarget?.type === "between" &&
-    dropTarget?.entityId === id &&
-    dropTarget?.position === "before"
-  );
-  let dropAfter = $derived(
-    dropTarget?.type === "between" &&
-    dropTarget?.entityId === id &&
-    dropTarget?.position === "after"
-  );
-  let dropInto = $derived(
-    dropTarget?.type === "into" &&
-    dropTarget?.entityId === id
-  );
-  let isDragging = $derived(draggedId === id);
+    /// Drop indicator classes
+    let dropBefore = $derived(
+        dropTarget?.type === "between" &&
+            dropTarget?.entityId === id &&
+            dropTarget?.position === "before",
+    );
+    let dropAfter = $derived(
+        dropTarget?.type === "between" &&
+            dropTarget?.entityId === id &&
+            dropTarget?.position === "after",
+    );
+    let dropInto = $derived(
+        dropTarget?.type === "into" && dropTarget?.entityId === id,
+    );
+    let isDragging = $derived(draggedId === id);
 </script>
 
 <div
-  class="tree-node-wrapper"
-  class:drop-before={dropBefore}
-  class:drop-after={dropAfter}
-  style="--indent-depth: {depth};"
+    class="tree-node-wrapper"
+    class:drop-before={dropBefore}
+    class:drop-after={dropAfter}
+    style="--indent-depth: {depth};"
 >
-  <div
-    class="tree-node"
-    role="treeitem"
-    aria-selected="false"
-    tabindex="-1"
-    class:drop-into={dropInto}
-    class:dragging={isDragging}
-    style="padding-left: {depth * 20 + 8}px;"
-    draggable="true"
-    ondragstart={onNodeDragStart}
-    ondragover={onNodeDragOver}
-    ondragleave={onDragLeave}
-    ondrop={onNodeDrop}
-    ondragend={onDragEnd}
-  >
-    <!-- Expand/collapse toggle -->
-    <span class="toggle" onclick={toggleExpand} onkeydown={(e) => e.key === "Enter" && toggleExpand(e)} role="button" tabindex="0">
-      {#if folder || hasChildren}
-        {expanded ? '▾' : '▸'}
-      {:else}
-        <span class="toggle-spacer"></span>
-      {/if}
-    </span>
-
-    <span class="icon">{icon}</span>
-    <span class="name">{displayName}</span>
-
-    {#if attachedComponents.length > 0}
-      <span class="components-list" data-testid="components-list">
-        {#each attachedComponents as compType}
-          <span class="component-badge" data-testid="component-badge">{compType}</span>
-        {/each}
-      </span>
-    {/if}
-
-    {#if isDeep && childrenCount > 0}
-      <span class="deep-badge" data-testid="deep-badge" title="Too deeply nested to show inline">
-        📦 {childrenCount} item{childrenCount === 1 ? '' : 's'} · collapsed
-      </span>
-    {/if}
-  </div>
-
-  {#if expanded && !isDeep && (folder || orderedChildren.length > 0)}
     <div
-      class="children"
-      role="group"
-      class:drop-into={dropInto}
-      ondragover={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (draggedId !== null && !isAncestor(id, draggedId)) {
-          setDropTarget({ type: "into", entityId: id, position: "after" });
-        }
-      }}
-      ondragleave={(e) => {
-        const next = e.relatedTarget as Node | null;
-        if (!next || !(e.currentTarget as HTMLElement).contains(next)) {
-          setDropTarget(null);
-        }
-      }}
-      ondrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onDrop(e, id, { type: "into", entityId: id, position: "after" });
-      }}
+        class="tree-node"
+        role="treeitem"
+        aria-selected="false"
+        tabindex="-1"
+        class:drop-into={dropInto}
+        class:dragging={isDragging}
+        style="padding-left: {depth * 20 + 8}px;"
+        draggable="true"
+        ondragstart={onNodeDragStart}
+        ondragover={onNodeDragOver}
+        ondragleave={onDragLeave}
+        ondrop={onNodeDrop}
+        ondragend={onDragEnd}
     >
-      {#each orderedChildren as childId (childId)}
-        <TreeNode
-          id={childId}
-          {draggedId}
-          {dropTarget}
-          {isFolder}
-          {isAncestor}
-          {onDragStart}
-          {onDragOver}
-          {onDragLeave}
-          {onDrop}
-          {onDragEnd}
-          {setDropTarget}
-          depth={depth + 1}
-        />
-      {/each}
+        <!-- Expand/collapse toggle -->
+        <span
+            class="toggle"
+            onclick={toggleExpand}
+            onkeydown={(e) => e.key === "Enter" && toggleExpand(e)}
+            role="button"
+            tabindex="0"
+        >
+            {#if folder || hasChildren}
+                {expanded ? "▾" : "▸"}
+            {:else}
+                <span class="toggle-spacer"></span>
+            {/if}
+        </span>
+
+        <span class="icon">{icon}</span>
+        <span class="name">{displayName}</span>
+
+        {#if attachedComponents.length > 0}
+            <span class="components-list" data-testid="components-list">
+                {#each attachedComponents as compType}
+                    <span class="component-badge" data-testid="component-badge"
+                        >{compType}</span
+                    >
+                {/each}
+            </span>
+        {/if}
     </div>
-  {/if}
+
+    {#if expanded && (folder || orderedChildren.length > 0)}
+        <div
+            class="children"
+            role="group"
+            class:drop-into={dropInto}
+            ondragover={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (draggedId !== null && !isAncestor(id, draggedId)) {
+                    setDropTarget({
+                        type: "into",
+                        entityId: id,
+                        position: "after",
+                    });
+                }
+            }}
+            ondragleave={(e) => {
+                const next = e.relatedTarget as Node | null;
+                if (!next || !(e.currentTarget as HTMLElement).contains(next)) {
+                    setDropTarget(null);
+                }
+            }}
+            ondrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDrop(e, id, {
+                    type: "into",
+                    entityId: id,
+                    position: "after",
+                });
+            }}
+        >
+            {#each orderedChildren as childId (childId)}
+                <TreeNode
+                    id={childId}
+                    {draggedId}
+                    {dropTarget}
+                    {isFolder}
+                    {isAncestor}
+                    {onDragStart}
+                    {onDragOver}
+                    {onDragLeave}
+                    {onDrop}
+                    {onDragEnd}
+                    {setDropTarget}
+                    depth={depth + 1}
+                />
+            {/each}
+        </div>
+    {/if}
 </div>
 
 <style>
-  .tree-node-wrapper {
-    position: relative;
-  }
+    .tree-node-wrapper {
+        position: relative;
+    }
 
-  .tree-node-wrapper.drop-before::before {
-    content: "";
-    position: absolute;
-    top: -1px;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background-color: var(--accent, #7c3aed);
-    z-index: 10;
-    pointer-events: none;
-  }
+    .tree-node-wrapper.drop-before::before {
+        content: "";
+        position: absolute;
+        top: -1px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background-color: var(--accent, #7c3aed);
+        z-index: 10;
+        pointer-events: none;
+    }
 
-  .tree-node-wrapper.drop-after::after {
-    content: "";
-    position: absolute;
-    bottom: -1px;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background-color: var(--accent, #7c3aed);
-    z-index: 10;
-    pointer-events: none;
-  }
+    .tree-node-wrapper.drop-after::after {
+        content: "";
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background-color: var(--accent, #7c3aed);
+        z-index: 10;
+        pointer-events: none;
+    }
 
-  .tree-node {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px 6px 8px;
-    cursor: pointer;
-    border-radius: 4px;
-    transition: background-color 0.15s;
-    border: 1px solid transparent;
-    white-space: nowrap;
-    position: relative;
-  }
+    .tree-node {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px 6px 8px;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background-color 0.15s;
+        border: 1px solid transparent;
+        white-space: nowrap;
+        position: relative;
+    }
 
-  .tree-node:hover {
-    background-color: rgba(124, 58, 237, 0.08);
-  }
+    .tree-node:hover {
+        background-color: rgba(124, 58, 237, 0.08);
+    }
 
-  .tree-node.drop-into {
-    background-color: rgba(124, 58, 237, 0.15);
-    border-color: var(--accent, #7c3aed);
-  }
+    .tree-node.drop-into {
+        background-color: rgba(124, 58, 237, 0.15);
+        border-color: var(--accent, #7c3aed);
+    }
 
-  .tree-node.dragging {
-    opacity: 0.4;
-  }
+    .tree-node.dragging {
+        opacity: 0.4;
+    }
 
-  .toggle {
-    width: 18px;
-    height: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    color: var(--text-secondary);
-    flex-shrink: 0;
-    cursor: pointer;
-    user-select: none;
-  }
+    .toggle {
+        width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        color: var(--text-secondary);
+        flex-shrink: 0;
+        cursor: pointer;
+        user-select: none;
+    }
 
-  .toggle-spacer {
-    width: 18px;
-    flex-shrink: 0;
-  }
+    .toggle-spacer {
+        width: 18px;
+        flex-shrink: 0;
+    }
 
-  .icon {
-    flex-shrink: 0;
-    font-size: 14px;
-  }
+    .icon {
+        flex-shrink: 0;
+        font-size: 14px;
+    }
 
-  .name {
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 13px;
-  }
+    .name {
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 13px;
+    }
 
-  .components-list {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: 6px;
-  }
+    .components-list {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: 6px;
+    }
 
-  .component-badge {
-    font-size: 10px;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background: rgba(124, 58, 237, 0.18);
-    color: #c4b5fd;
-    border: 1px solid rgba(124, 58, 237, 0.35);
-    font-weight: 500;
-  }
+    .component-badge {
+        font-size: 10px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        background: rgba(124, 58, 237, 0.18);
+        color: #c4b5fd;
+        border: 1px solid rgba(124, 58, 237, 0.35);
+        font-weight: 500;
+    }
 
-  .deep-badge {
-    font-size: 10px;
-    padding: 1px 6px;
-    border-radius: 3px;
-    background: rgba(59, 130, 246, 0.18);
-    color: #93c5fd;
-    border: 1px dashed rgba(59, 130, 246, 0.45);
-    font-weight: 500;
-    margin-left: 6px;
-    white-space: nowrap;
-  }
-
-  .children {
-    min-height: 0;
-    position: relative;
-    border-left: 1px dashed rgba(255, 255, 255, 0.1);
-    margin-left: calc(var(--indent-depth) * 20px + 16px);
-  }
+    .children {
+        min-height: 0;
+        position: relative;
+        border-left: 1px dashed rgba(255, 255, 255, 0.1);
+        margin-left: calc(var(--indent-depth) * 20px + 16px);
+    }
 </style>

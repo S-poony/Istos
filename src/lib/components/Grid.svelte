@@ -46,7 +46,7 @@
   class="entity-wrapper"
   class:root={isRoot}
   class:draggable={draggable}
-  onclick={() => focusEntity(entityId)}
+  onclick={(e) => { e.stopPropagation(); focusEntity(entityId); }}
 >
   <div class="entity-header">
     <span class="entity-name">{entityName}</span>
@@ -85,9 +85,11 @@
   }
 
   /* Nested entities fill their parent grid cell, preserving min-height for contents */
+  /* Nested entities stretch to fill their grid row (handled by grid align-items: stretch)
+     without forcing an ambiguous percentage height that collapses/overflows content. */
   .entity-wrapper:not(.root) {
-    height: 100%;
-    min-height: fit-content;
+    height: auto;
+    min-height: 0;
   }
 
   .entity-wrapper:hover {
