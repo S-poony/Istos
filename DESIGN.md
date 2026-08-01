@@ -60,6 +60,49 @@ Two rules follow, both learned the hard way:
   Skip the filesystem rename, but still update `parent_ids` and persist —
   otherwise stale parenting survives and the next reorder fails.
 
+### The trove is watched, and reconciled rather than rescanned
+
+The open trove is watched recursively (`src-tauri/src/watch.rs`, the `notify`
+crate) and there is no way to turn that off. A file explorer showing a folder as
+it was ten minutes ago is simply wrong, and a toggle would only make it wrong
+silently.
+
+**A change on disk reconciles the world; it does not rebuild it.** Entity ids
+are what focus, the live view list and every stored `grid` order are written in
+terms of, so clearing the world renumbers everything — and a file appearing in a
+folder would throw the user out of wherever they were standing. `sync_trove_impl`
+matches entities to disk **by their `renderFile` path**: a path still there keeps
+its entity and its id, a new path gets a new entity, a vanished path loses one,
+and parenting follows the disk. An entity with no path is not something the
+filesystem can speak for and is left alone.
+
+Four rules keep it safe:
+
+- **One walk.** `scan_tree` is shared by `open_trove_impl` and `sync_trove_impl`.
+  Two copies would drift, and the drift would read as entities that appear on a
+  rescan and vanish on the next open.
+- **A failed scan changes nothing.** An unreadable root returns `Err` before the
+  world is touched — `open_trove_impl` clears only *after* the walk succeeds.
+  An unplugged drive must not be data loss. A directory *inside* the trove that
+  cannot be read is skipped with a warning instead, or one unreadable folder
+  would mean a watched trove that can never reconcile again.
+- **Bursts are one change.** Events are debounced to a quiet period; unzipping an
+  archive is dozens of events and one reconciliation.
+- **The watch ends before the world it describes does.** `open_trove` stops
+  watching before it rescans, and a watch generation counter retires any worker
+  still mid-debounce. A watcher reporting the old root against the new world
+  would find that none of its paths match and reconcile the whole trove away.
+
+Only structural events count — `Create`, `Remove`, `Modify(Name)`. A file's
+*contents* changing does not change the entity graph, and reacting to it would
+re-walk the trove every time an editor saves.
+
+The backend emits `trove-changed` **only when something actually changed**,
+carrying what changed; the frontend reloads its mirror. There is no toast: the
+user did not ask for this, and the new card appearing is the feedback. If the
+focused entity is gone, the user lands on the deepest step of the breadcrumb
+trail that survived — usually the parent of whatever was deleted.
+
 ### Entity, Component, System
 
 - **Entity** — a `u64` (Rust) / `number` (TS). Identity only.
@@ -126,6 +169,9 @@ parent's `grid` component settings.
 `open_trove`, `get_world_state`, `add_component`, `remove_component`,
 `update_component_settings`, `reorder_children`, `move_entity`, `open_path`,
 `open_with`, `reveal_in_file_manager`.
+
+One event goes the other way: `trove-changed`, emitted by the filesystem watcher
+when the trove on disk stopped matching the world.
 
 ### The TypeScript mirror is indexed
 
@@ -290,6 +336,12 @@ and from an orientation default otherwise.
 - PDFs report their first page's size through `onFirstPageSize`, which sets
   `--card-aspect` inline. **A PDF is not assumed to be portrait** — a slide deck
   is landscape and should look like one.
+- **A PDF card has its own floor, above every orientation default**
+  (`.pdf-file`, 320–640px). A PDF card is not a picture of a page: it carries a
+  toolbar under the page and a caption under that, out of the same box. At the
+  120px landscape floor the viewer ended up shorter than its own toolbar needs
+  and dropped it entirely, leaving a page the user could neither read nor turn.
+  Text keeps a taller floor for the same kind of reason.
 - Defaults when nothing has been measured: portrait `3 / 4`
   (`min-height: 180px`, `max-height: 400px`), landscape `16 / 9`
   (`min-height: 120px`), audio `min-height: 82px`, unclassified `120px`.
@@ -388,6 +440,20 @@ Three rules keep that from becoming a leak:
 The effect that maintains the list reads focus and the world and **`untrack`s
 the list itself**. Reading it reactively would make the effect depend on its own
 output: every write would schedule another run, which would write again.
+
+**Scroll position is part of a view, and has to be carried by hand.** All views
+share one scroll container and a hidden view is `display: none`, so while a
+short view is on screen the container has nothing left to scroll and the browser
+clamps it to 0 — the position the user was at is not something the DOM keeps.
+`Desktop.svelte` records it on scroll, per view, and restores it after the view
+list has reached the DOM. Two details: the restore is guarded so the scroll
+event it provokes cannot record a not-yet-laid-out position over the one being
+restored, and a view dropped from the list drops its remembered position with
+it, since it will be rebuilt from scratch anyway.
+
+There is exactly **one scroll container in live mode**. A `min-height` on
+`.desktop-container` made it taller than the `<main>` holding it on a short
+window, so the desktop scrolled in two places at once.
 
 `MAX_DEPTH` applies to **live mode only**. The tree view is finite and safe to
 expand to any depth, and never replaces a node with a summary — but only its top

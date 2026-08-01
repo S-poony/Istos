@@ -166,6 +166,41 @@ describe('Grid child overflow', () => {
     });
 });
 
+describe('Card kinds', () => {
+    /// A PDF card carries a toolbar and a caption under the page, and all three
+    /// come out of the same box. It is marked so the stylesheet can give it a
+    /// floor of its own: at the orientation defaults — 120px for a landscape
+    /// slide deck — the viewer ended up shorter than its own toolbar needs and
+    /// dropped it, leaving a page the user could neither read nor turn.
+    it('marks a PDF card as one, whatever shape the document turns out to be', () => {
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 1,
+                    components: [
+                        { componentType: 'renderFile', settings: { targetPath: '/Folder/slides.pdf', scale: 1, position: { x: 0, y: 0 } } },
+                    ],
+                },
+            ],
+        });
+
+        const { container } = render(RenderEntity, { entityId: 1 });
+        const card = container.querySelector('.render-file')!;
+
+        expect(card).toHaveClass('pdf-file');
+        // Not a text card: the two have different floors and must not share one.
+        expect(card).not.toHaveClass('text-file');
+    });
+
+    it('does not mark other files as PDFs', () => {
+        worldStore.loadFromData(folderOf(1));
+
+        const { container } = render(RenderEntity, { entityId: 100 });
+
+        expect(container.querySelector('.render-file')).not.toHaveClass('pdf-file');
+    });
+});
+
 describe('Deferred content', () => {
     it('renders nothing heavier than a placeholder before a card is on screen', async () => {
         deferVisibility(true);

@@ -104,6 +104,18 @@ and test that.
 
 ## Rust / backend
 
+**A serde struct with one non-`Option` field nobody passes rejects the whole
+object.** `GridSettings::draggable` was a plain `bool`, so the scan's
+`{"columns": 3, "gap": 10}` failed to deserialise entirely, `update_settings`
+swallowed the error, and every directory in every trove silently kept the
+4-column default instead of the 3 the scan asked for. `#[serde(default)]` on the
+field nobody mentions, and a `warn!` in `update_settings` so the next one is not
+silent too.
+
+**Clear the world after the scan succeeds, not before.** `open_trove_impl`
+cleared first and then walked, so a folder that could not be read left the user
+with an empty world and no way back. Walk, then clear, then build.
+
 **Entity ID `0` is a real ID.** ECS ids start at `0`, so `0` cannot double as a
 "root" sentinel. Represent the root parent as `Option::None` / `null`.
 
@@ -198,6 +210,19 @@ min-height: 0;` and let `align-items: stretch` size the row.
 `.desktop-container` squashes root entity wrappers into thin strips. Set
 `flex-shrink: 0; height: fit-content` on `.entity-wrapper.root` and let the
 container scroll.
+
+**`display: none` throws away a scroll position.** Hiding a view clamps the
+shared scroll container to 0, and showing it again does not bring the position
+back — the browser has nothing left to remember it with. Record `scrollTop` per
+view on scroll and restore it after the switch, guarding the restore so the
+scroll event it provokes cannot record a clamped 0 over the value being put
+back. Under JSDOM `scrollTop` is permanently 0, so a test has to redefine the
+property on the element to have anything to assert about.
+
+**Two scroll containers, one page.** `.desktop-container` carried `height: 100%`
+*and* `min-height: 500px`, so on a short window it outgrew the `<main>` it sits
+in and both scrolled. Everything that reads or writes a scroll position then
+disagrees with what the user is looking at.
 
 **Do not unmount views to switch modes.** Toggling edit/live with `{#if}`
 destroys and rebuilds every rendered file. Render both and toggle visibility

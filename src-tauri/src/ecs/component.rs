@@ -102,8 +102,13 @@ impl Component for RenderFile {
     }
 
     fn update_settings(&mut self, settings: serde_json::Value) {
-        if let Ok(s) = serde_json::from_value(settings) {
-            self.settings = s;
+        match serde_json::from_value(settings) {
+            Ok(s) => self.settings = s,
+            // Rejected settings keep the previous ones, which is the safe
+            // outcome — but silently, this is indistinguishable from settings
+            // that were applied, and that is how a whole trove ran on defaults
+            // nobody chose for it.
+            Err(e) => log::warn!("Ignoring invalid renderFile settings: {}", e),
         }
     }
 
@@ -125,6 +130,13 @@ pub struct GridSettings {
     /// Gap between grid items in pixels.
     pub gap: f64,
     /// Whether items can be dragged.
+    ///
+    /// Defaulted, unlike `columns` and `gap`, because it is not something a
+    /// caller describing a layout has any reason to mention. Without this the
+    /// scan's `{"columns": 3, "gap": 10}` failed to deserialise as a whole and
+    /// `update_settings` swallowed it, so every directory in every trove
+    /// silently kept the 4-column default it had never asked for.
+    #[serde(default)]
     pub draggable: bool,
     /// Explicit ordering of child entity IDs (None = alphabetical).
     pub order: Option<Vec<u64>>,
@@ -166,8 +178,9 @@ impl Component for Grid {
     }
 
     fn update_settings(&mut self, settings: serde_json::Value) {
-        if let Ok(s) = serde_json::from_value(settings) {
-            self.settings = s;
+        match serde_json::from_value(settings) {
+            Ok(s) => self.settings = s,
+            Err(e) => log::warn!("Ignoring invalid grid settings: {}", e),
         }
     }
 

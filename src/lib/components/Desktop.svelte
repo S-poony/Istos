@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { editMode, worldStore, rootEntities, focusedEntityStore, focusEntity, breadcrumbPath } from "../stores/world";
   import { MAX_LIVE_VIEWS } from "../constants";
   import type { EntityId } from "../types";
@@ -22,7 +22,30 @@
   let clock = 0;
   const lastUsed = new Map<EntityId | null, number>([[null, clock++]]);
 
+  /// Where each view was last scrolled to.
+  ///
+  /// All views share one scroll container, and a hidden view is hidden with
+  /// `display: none` — so while a short view is on screen the container has
+  /// nothing left to scroll and the browser clamps its `scrollTop` to 0. The
+  /// position the user was at is therefore not something the DOM keeps: it has
+  /// to be recorded on the way out and put back on the way in, or stepping into
+  /// a folder and back drops the user at the top of a trove they had scrolled
+  /// halfway down.
+  const scrollTops = new Map<EntityId | null, number>();
+
+  /// True while `scrollTop` is being assigned. Assigning it makes the browser
+  /// fire a scroll event, and a view that has not finished laying out reports a
+  /// clamped position — recording that would overwrite the very position being
+  /// restored.
+  let restoring = false;
+  let scroller = $state<HTMLDivElement | null>(null);
+
   let active = $derived($focusedEntityStore ?? null);
+
+  function rememberScroll() {
+    if (restoring || !scroller) return;
+    scrollTops.set(active, scroller.scrollTop);
+  }
 
   $effect(() => {
     const current = active;
@@ -58,7 +81,50 @@
       const unchanged =
         next.length === views.length && next.every((id, index) => id === views[index]);
       if (!unchanged) views = next;
+
+      /// A view that is gone takes its remembered scroll position and its
+      /// recency with it. Both maps are keyed by entity, so leaving entries
+      /// behind would grow them for the lifetime of the app — and a view that
+      /// comes back has been rebuilt from scratch anyway, so the top is where
+      /// it honestly starts.
+      const live = new Set(next);
+      for (const id of lastUsed.keys()) if (!live.has(id)) lastUsed.delete(id);
+      for (const id of scrollTops.keys()) if (!live.has(id)) scrollTops.delete(id);
     });
+  });
+
+  /// Put the incoming view back where it was left. `tick()` because the view
+  /// list above may still owe the DOM an update: scrolling to a position in a
+  /// container that is not showing the right view yet scrolls the wrong thing.
+  $effect(() => {
+    const view = active;
+    const element = scroller;
+    if (!element) return;
+
+    let cancelled = false;
+    let frame: number | null = null;
+    restoring = true;
+
+    tick().then(() => {
+      if (cancelled) return;
+      element.scrollTop = scrollTops.get(view) ?? 0;
+      /// Scroll events are dispatched before animation frame callbacks, so
+      /// releasing here drops exactly the events this assignment caused and
+      /// none of the user's own.
+      if (typeof requestAnimationFrame === "function") {
+        frame = requestAnimationFrame(() => (restoring = false));
+      } else {
+        restoring = false;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      restoring = false;
+      if (frame !== null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(frame);
+      }
+    };
   });
 
   /// What a view renders: the ordered roots for the trove root, or the single
@@ -74,7 +140,12 @@
   <TreeView />
 </div>
 
-<div class="desktop-container" class:hidden={$editMode}>
+<div
+  class="desktop-container"
+  class:hidden={$editMode}
+  bind:this={scroller}
+  onscroll={rememberScroll}
+>
   {#if $focusedEntityStore !== null}
     <nav class="breadcrumb-bar" aria-label="Breadcrumb" data-testid="breadcrumb-bar">
       {#each $breadcrumbPath as item, index (index)}
@@ -113,11 +184,14 @@
 </div>
 
 <style>
+  /* The one scroll container for live mode. It must stay the only one: a
+     `min-height` here made the container taller than the `<main>` holding it on
+     a short window, so the page scrolled in two places at once and the position
+     restored above was not the position the user could see. */
   .desktop-container {
     position: relative;
     width: 100%;
     height: 100%;
-    min-height: 500px;
     display: flex;
     flex-direction: column;
     gap: 12px;

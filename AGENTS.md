@@ -23,6 +23,7 @@ probably already there.
 npm start                  # Tauri dev window + Vite (this is the app)
 npm run dev                # Vite only; this is tauri.conf's beforeDevCommand
 npm test -- --run          # Frontend tests (vitest)
+npx svelte-check           # Type-check the Svelte + TS sources
 npm run build              # Frontend production build
 cd src-tauri && cargo test # Backend tests
 ```

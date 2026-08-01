@@ -33,13 +33,7 @@ below), and `renderArchitecture` (children as connected nodes). `timeline` is
 the most valuable next one: combined with `grid` and `renderFile` it unlocks the
 diaporama and music use cases the product description is built around.
 
-## 4. Filesystem watching
-
-The world is only rebuilt when a trove is opened. Changes made outside the app
-are invisible until reopened. The `notify` crate on the Rust side, pushing
-events to the frontend, would close this gap.
-
-## 5. Performance on large troves
+## 4. Performance on large troves
 
 Partly done. The desktop no longer loads what it cannot show, no longer scans
 the world to answer a structural question, and no longer renders every child of
@@ -59,10 +53,24 @@ What is left is the part that costs the most on a genuinely large trove:
   keeps that cheap, but the DOM nodes themselves are not free.
 - **Incremental world updates.** `get_world_state` serialises the whole world
   and the frontend rebuilds its whole mirror on every refresh, so a
-  drag-and-drop of one file costs a full round trip of the trove.
+  drag-and-drop of one file costs a full round trip of the trove. The filesystem
+  watcher made this the hottest of the three: the backend now reconciles
+  incrementally and knows exactly what changed, and then tells the frontend
+  nothing more useful than "reload everything".
+- **A watched trove is a re-walked trove.** Every debounced burst of filesystem
+  events walks the whole tree to find what moved. `notify` already says which
+  paths changed; reconciling only their parent directories would make the cost
+  of a change proportional to the change.
 
-## 6. Open questions from `plan.md`
+## 5. Open questions from `plan.md`
 
-Still unanswered: whether file watching should be automatic or manual, and how
-component settings should be validated when a component is attached to an entity
-that cannot support it.
+Whether file watching should be automatic or manual is answered: it is
+automatic, always, and there is no setting — see the watching rules in
+[../DESIGN.md](../DESIGN.md).
+
+Still unanswered: how component settings should be validated when a component is
+attached to an entity that cannot support it. Related, and now known to bite:
+`update_settings` rejects settings it cannot deserialise and keeps the previous
+ones. It logs a warning now, but "rejected" and "applied" still look identical
+from the outside, which is how every directory in every trove ran on a column
+count nobody chose.

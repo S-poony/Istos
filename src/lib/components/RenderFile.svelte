@@ -216,6 +216,7 @@
   class="render-file"
   class:audio-file={isAudio}
   class:text-file={isText}
+  class:pdf-file={isPdf}
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
   class:editable={$editMode}
@@ -441,6 +442,25 @@
     aspect-ratio: var(--card-aspect, 4 / 5);
     min-height: 240px;
     max-height: 520px;
+  }
+
+  /* A PDF card is not just a picture of a page: it carries a toolbar of its own
+     under the page and a caption under that, and both come out of the same box.
+     At the ordinary card floors what was left for the page was a stamp — and a
+     landscape document, whose 120px floor left the viewer under the height its
+     toolbar needs, lost the toolbar altogether and became a page the user could
+     neither read nor turn.
+
+     So a PDF keeps its own floor, above every orientation default, for the same
+     reason text does: its usefulness is a function of how much of it fits. The
+     ratio is still the document's own — `--card-aspect` is set from the first
+     page — and only takes over once the card is wide enough for it to ask for
+     more height than the floor. Declared after the orientation rules on
+     purpose: same specificity, so the later one wins. */
+  :global(.grid-container > .render-file.pdf-file) {
+    aspect-ratio: var(--card-aspect, 3 / 4);
+    min-height: 320px;
+    max-height: 640px;
   }
 
   /* Tall enough for the player *and* the caption below it: sizing this to the

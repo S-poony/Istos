@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { worldStore } from "./lib/stores/world";
   import { pushToast } from "./lib/stores/toasts";
   import { openTroveFlow, troveOpening } from "./lib/trove";
+  import { startWatchingTrove } from "./lib/watch";
   import ContextMenu from "./lib/components/ContextMenu.svelte";
   import Desktop from "./lib/components/Desktop.svelte";
   import ModeToggle from "./lib/components/ModeToggle.svelte";
@@ -42,6 +43,10 @@
     }
   }
 
+  /// Unsubscribes from backend trove notifications. Assigned after mount, so
+  /// `onDestroy` has to tolerate it being null.
+  let stopWatching: (() => void) | null = null;
+
   onMount(async () => {
     try {
       const state = await invoke("get_world_state");
@@ -52,7 +57,20 @@
     } finally {
       loading = false;
     }
+
+    /// The trove is watched whether or not the world loaded: a failed load is
+    /// a recoverable state the user can open a new trove out of, and the watch
+    /// is what keeps that trove current afterwards. A failure to subscribe is
+    /// logged rather than shown — it costs the user freshness, not their work,
+    /// and a startup dialog about an event channel explains nothing.
+    try {
+      stopWatching = await startWatchingTrove();
+    } catch (e) {
+      console.error("Failed to watch the trove for changes:", e);
+    }
   });
+
+  onDestroy(() => stopWatching?.());
 </script>
 
 <ToastStack />

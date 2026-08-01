@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod db;
 pub mod ecs;
+pub mod watch;
 
 use tauri::Manager;
 
@@ -11,7 +12,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let _app_handle = app.handle().clone();
             let db_path = app
                 .path()
                 .app_data_dir()
@@ -30,6 +30,13 @@ pub fn run() {
             // Store connection and world in app state
             app.manage(db::DbState(std::sync::Mutex::new(conn)));
             app.manage(ecs::WorldState(std::sync::Mutex::new(world)));
+            app.manage(watch::WatchState::new());
+
+            // The world came back from SQLite without anyone opening a trove,
+            // so nothing has started watching it. Do that now, or the first
+            // session after a restart would be the one session that misses
+            // changes made outside the app.
+            watch::watch_saved_trove(app.handle());
 
             Ok(())
         })
