@@ -41,6 +41,9 @@ pub fn run() {
             commands::trove::update_component_settings,
             commands::trove::reorder_children,
             commands::trove::move_entity,
+            commands::system::open_path,
+            commands::system::open_with,
+            commands::system::reveal_in_file_manager,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

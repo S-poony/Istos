@@ -48,6 +48,17 @@ function nodeProps(id: number, overrides: Partial<TreeNodeProps> = {}): TreeNode
 
 type TreeNodeProps = ComponentProps<typeof TreeNode>;
 
+/// Clicks the expand toggle of the node with the given label.
+///
+/// Only the top level of the tree starts open, so any test about what is
+/// visible further down has to say how it got there — which is also the thing
+/// being asserted: the tree has no depth limit, it just does not open itself.
+async function expandNode(label: string): Promise<void> {
+    const node = screen.getByText(label).closest('.tree-node')!;
+    await fireEvent.click(node.querySelector('.toggle')!);
+    await tick();
+}
+
 describe('TreeNode - Expand/Collapse', () => {
     beforeEach(() => {
         // Load a container with children into the store
@@ -476,7 +487,7 @@ describe('TreeView - Drag and Drop Integration', () => {
         await fireEvent.dragEnd(standaloneNode, { dataTransfer: dt });
     });
 
-    it('should render multi-level nested folders expanded by default', () => {
+    it('should open the top level only, and open deeper levels on request', async () => {
         loadFixture({
             entities: [
                 { id: 1, components: [{ componentType: 'grid', settings: { columns: 2, gap: 4 } }, { componentType: 'renderFile', settings: { targetPath: '/RootFolder' } }] },
@@ -487,8 +498,14 @@ describe('TreeView - Drag and Drop Integration', () => {
 
         render(TreeView);
 
+        // A root and its children: enough to see what the trove holds without
+        // mounting a node for every file in it.
         expect(screen.getByText('RootFolder')).toBeInTheDocument();
         expect(screen.getByText('SubFolder')).toBeInTheDocument();
+        expect(screen.queryByText('deep.txt')).toBeNull();
+
+        await expandNode('SubFolder');
+
         expect(screen.getByText('deep.txt')).toBeInTheDocument();
     });
 
@@ -674,35 +691,56 @@ describe('TreeNode - Deep Nesting Collapse', () => {
         });
     });
 
-    it('should still render children inline at any depth (no collapse in tree view)', () => {
+    it('should still render children inline at any depth (no collapse in tree view)', async () => {
         const { container } = render(TreeNode, nodeProps(5, { depth: 4 }));
 
         // No collapsed badge
         expect(container.querySelector('[data-testid=deep-badge]')).toBeNull();
 
-        // Children must still be rendered inline
+        // Depth is not a limit, only a default: the toggle is offered, and
+        // taking it renders the children inline like anywhere else.
+        await expandNode('L5');
+
         expect(container.querySelector('.children')).not.toBeNull();
         expect(screen.getByText('deep.txt')).toBeInTheDocument();
     });
 
-    it('should recurse normally below MAX_DEPTH', () => {
+    it('should recurse normally below MAX_DEPTH', async () => {
         const { container } = render(TreeNode, nodeProps(4, { depth: 3 }));
 
         const rootNode = container.querySelector('.tree-node');
         expect(rootNode).toBeInTheDocument();
         expect(rootNode?.querySelector('[data-testid=deep-badge]')).toBeNull();
+
+        await expandNode('L4');
         expect(container.querySelector('.children')).toBeInTheDocument();
     });
 
-    it('should render deeply nested nodes inline within a full tree (no collapse)', () => {
+    it('should render deeply nested nodes inline within a full tree (no collapse)', async () => {
         render(TreeView);
 
-        // Node L5 sits at depth 4 in the tree and should still show its child
+        // Only the root opens itself. Every level below it opens on request and
+        // none of them is ever replaced by a summary — the tree is finite, so
+        // the desktop's MAX_DEPTH does not apply here.
         expect(screen.getByText('L1')).toBeInTheDocument();
-        expect(screen.getByText('L4')).toBeInTheDocument();
+        expect(screen.getByText('L2')).toBeInTheDocument();
+        expect(screen.queryByText('L3')).toBeNull();
+
+        await expandNode('L2');
+        await expandNode('L3');
+        await expandNode('L4');
+        await expandNode('L5');
+
         expect(screen.getByText('L5')).toBeInTheDocument();
         expect(screen.getByText('deep.txt')).toBeInTheDocument();
         expect(screen.queryByTestId('deep-badge')).toBeNull();
     });
 
+    it('should not mount a node for a collapsed subtree', () => {
+        const { container } = render(TreeView);
+
+        // Five levels exist in the fixture; two are on screen. The rest are not
+        // hidden nodes, they are nodes that were never created.
+        expect(container.querySelectorAll('.tree-node')).toHaveLength(2);
+    });
 });

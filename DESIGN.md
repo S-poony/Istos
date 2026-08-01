@@ -82,8 +82,23 @@ Components are stored as `HashMap<EntityId, Vec<Box<dyn Component>>>` in Rust an
 | `pin` | planned | `visible` | Stays visible while navigating below |
 | `renderArchitecture` | planned | `layout` | Children as connected nodes |
 
-At scan time every file gets `renderFile`; every directory gets `grid` **and**
-`renderFile`, so a directory is visible as an item and as a container.
+At scan time every directory gets `grid` **and** `renderFile`, so it is visible
+as an item and as a container; **everything that is not a directory** gets
+`renderFile`. Testing `is_file()` instead left sockets and other exotica with an
+entity and no components at all — present in the world, invisible in every view.
+
+The scan keeps a set of canonicalised directories it has already read.
+`is_dir()` follows symlinks, so a link pointing at one of its own ancestors is a
+cycle the walk cannot see: it reads the same directory under a new path forever,
+creating entities the whole time. Canonicalising is the only form in which "have
+I been here" is answerable.
+
+Directory-ness and the sort key are read once per entry, never from inside a
+comparator — `is_dir()` is a `stat` call, and asking for it during a sort turned
+one directory into O(n log n) syscalls. It stays `is_dir()` rather than
+`DirEntry::file_type()` on purpose: a link to a directory should be browsable
+like the directory it points at, so the cycle is handled by remembering where
+the scan has been, not by refusing to follow.
 
 ---
 
@@ -109,7 +124,27 @@ parent's `grid` component settings.
 ### Command surface
 
 `open_trove`, `get_world_state`, `add_component`, `remove_component`,
-`update_component_settings`, `reorder_children`, `move_entity`.
+`update_component_settings`, `reorder_children`, `move_entity`, `open_path`,
+`open_with`, `reveal_in_file_manager`.
+
+### The TypeScript mirror is indexed
+
+Every question the renderer asks the world on a hot path is answered from an
+index, not a scan. `getChildren` used to walk every entity in the world, and the
+desktop asks it once per rendered node — so drawing a trove was quadratic in its
+size. `World` maintains parent → children, entity → component type, and
+component type → entities, and caches sorted children, ordered children and
+display names.
+
+The caches return **the same array instance** until something invalidates them.
+That is a correctness rule as much as a speed one: a keyed `{#each}` over a
+freshly built array re-runs on every reactive tick even when the contents are
+identical, tearing down and rebuilding cards that never changed.
+
+Anything that changes structure, ordering, or a component a name is read from
+calls `invalidateDerived()`. Invalidation is wholesale rather than surgical —
+loads, reparents and reorders are user-scale events, so precision would buy
+nothing and could go stale.
 
 ### Threading rule
 
@@ -161,8 +196,27 @@ pattern for the rest.
 
 ### Grid sizing
 
-Scale columns down to the child count when a container holds fewer children than
-its configured column count:
+**A grid's `columns` is a ceiling, not a count.** It says how wide a cell would
+*like* to be; the grid then lays down as many cells of at least
+`MIN_CARD_WIDTH` as genuinely fit, which is never more than the configured
+number and is often fewer.
+
+```css
+--cell: max(
+  var(--card-min),
+  (100% - (var(--grid-columns) - 1) * var(--grid-gap)) / var(--grid-columns)
+);
+grid-template-columns: repeat(auto-fill, minmax(min(var(--cell), 100%), 1fr));
+```
+
+Obeying the count at any cost is what produced slivers: three columns inside
+three columns inside three columns left each card a ninth of the window, and
+because a card also had a minimum height, the only thing it could do as space
+ran out was get thinner. The `max()` is the legibility floor; the
+`min(…, 100%)` keeps a container narrower than one card from overflowing.
+
+Scaling the ideal down to the child count is still right, so a container holding
+one thing shows it at full width rather than in a lonely sliver:
 
 ```ts
 let gridColumns = $derived(
@@ -170,21 +224,53 @@ let gridColumns = $derived(
 );
 ```
 
-Without this, a folder containing one folder containing one file compounds into
-an unreadably tiny cell.
-
-Always use `minmax(0, 1fr)`, never bare `1fr`:
-
-```css
-grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
-grid-auto-rows: minmax(min-content, max-content);
-align-items: stretch;
-```
+**Cards size themselves, not their row.** `align-items: start`, and no
+`height: 100%` on the card. `stretch` made a row as tall as its tallest member
+and handed that height to everything in it, which meant `aspect-ratio` was
+decorative and a text file beside a wide image was squeezed to a few unreadable
+lines.
 
 Root wrappers take only the space they need and never shrink
 (`height: fit-content; flex-shrink: 0`). Nested wrappers use
-`height: auto; min-height: 0` and let the grid row size them — percentage heights
-here produce tall empty boxes that overflow.
+`height: auto; min-height: 0` — percentage heights here produce tall empty boxes
+that overflow.
+
+### Running out of room: collapse, do not squeeze
+
+Below `DENSE_WIDTH` there is no room for even one legible card, so the grid stops
+drawing cards and draws rows: the same cards, marked `.dense`, with their bodies
+omitted entirely and their captions kept. A card narrower than its own caption
+costs more space than it conveys.
+
+The measurement comes from a `ResizeObserver` on the grid itself, not from
+nesting depth — depth is a poor proxy for space, and a container query could not
+also stop the card from *loading* what it has no room to show. **A zero-sized
+measurement means "not laid out yet", not "no room".**
+
+A dense entity does not expand inline, for the same reason a deep one does not:
+there is nowhere to put what is inside.
+
+### Only the focused container renders everything
+
+A nested container renders at most `MAX_INLINE_CHILDREN` children and offers the
+rest behind a control that focuses it. The focused container is never capped —
+it is the thing the user asked to look at. A directory of five thousand files
+rendered as passing context is five thousand cards nobody requested.
+
+### Nothing loads before it can be seen
+
+A card does no fetching, decoding or PDF parsing until it comes near the
+viewport (`src/lib/visibility.ts`, one shared `IntersectionObserver` for the
+whole app). Two rules keep it honest:
+
+- **Visibility is one-way.** The observer stops watching after the first hit, so
+  a card that scrolls away — or whose view is hidden while the user looks
+  elsewhere — keeps its work. Unloading on exit would mean navigating back
+  re-fetched everything, which is the cost the mechanism exists to avoid.
+- **No observer means visible.** JSDOM cannot answer the question, and a test
+  that renders a card still expects to see its contents. Guessing "hidden" would
+  also hide content from a real browser lacking the API, which is the worse of
+  the two failures.
 
 **Only the root wrapper draws a card; nested wrappers draw a rail.** A full box
 at every level adds its own padding and bottom border, so a chain of nested
@@ -243,6 +329,31 @@ control; the handler then focuses only if it did not. Two rules make this safe:
 A subtree that is interactive without being a form control marks itself
 `data-interactive`.
 
+### The context menu
+
+Right-clicking any card, container or tree node opens one menu: **Open**, **Open
+with…**, **Reveal in Explorer**. It follows the same innermost-wins rule as a
+left-click — the handler stops propagation, so right-clicking a card inside a
+container is not a request for the container's menu — and it does not also
+navigate.
+
+**There is one menu, at the app root.** Cards publish to `contextMenu`; they do
+not each own a menu. A menu per card is a component and a set of listeners per
+entity, for a thing the user sees one of at a time.
+
+An entity with no `renderFile` path has no file for the system to act on. The
+menu still opens, with its items disabled and a line saying why — a right-click
+that does nothing at all reads as a broken app.
+
+Only failures are announced. The window that opens is its own confirmation, and
+a toast for every open would be noise; a failure is invisible without one.
+
+The three system commands live in `src-tauri/src/commands/system.rs` and use
+`std::process::Command` per platform rather than one shared call, because the
+correct incantation differs enough per platform that hiding it would be a lie.
+Exit status is never inspected: `explorer.exe` returns non-zero even when it has
+done exactly what was asked.
+
 ### Depth and navigation
 
 Inline nesting stops at `MAX_DEPTH` (`src/lib/constants.ts`). At the limit an
@@ -257,8 +368,32 @@ Focusing an entity sets `focusedEntityStore`; a breadcrumb bar renders the
 ancestor chain back to the trove root. Opening a new trove clears the focus,
 since the previous id means nothing in the new world.
 
+**Navigating does not destroy what it leaves behind.** Each focus target is a
+view, and visited views stay mounted and hidden — the same trick the mode toggle
+uses. Swapping a keyed `{#each}` on focus tore down every card on the desktop,
+so stepping into a folder and back re-fetched every text file, re-decoded every
+image and re-parsed every PDF that had been on screen a moment earlier.
+
+Three rules keep that from becoming a leak:
+
+- **Bounded.** Past `MAX_LIVE_VIEWS` the least recently visited view is dropped,
+  never the one on screen. Keeping every view ever opened would hold a whole
+  trove's media in memory, which is the problem the mechanism solves.
+- **Pruned.** A view whose entity no longer exists — a new trove, a move — is
+  dropped. The trove root always survives.
+- **Never reordered.** Recency lives in a plain map beside the array, because a
+  keyed `{#each}` that reorders moves real DOM nodes, and there is no reason to
+  move a hidden subtree to record that it was visited recently.
+
+The effect that maintains the list reads focus and the world and **`untrack`s
+the list itself**. Reading it reactively would make the effect depend on its own
+output: every write would schedule another run, which would write again.
+
 `MAX_DEPTH` applies to **live mode only**. The tree view is finite and safe to
-expand fully; its nodes start expanded, with manual collapse preserved.
+expand to any depth, and never replaces a node with a summary — but only its top
+level starts open. Expanding everything meant opening a trove mounted a node per
+file before the user had asked to see any of them. Manual expansion and collapse
+are preserved for as long as a node lives.
 
 ### Mode switching
 

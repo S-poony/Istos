@@ -1,5 +1,7 @@
 <script lang="ts">
+    import { untrack } from "svelte";
     import { worldStore, focusEntity } from "../stores/world";
+    import { openContextMenu } from "../stores/contextMenu";
     import type { EntityId } from "../types";
     import TreeNode from "./TreeNode.svelte";
 
@@ -41,19 +43,19 @@
         setDropTarget,
     }: Props = $props();
 
-    let expanded = $state(true);
+    /// Only the top level starts open.
+    ///
+    /// The tree used to start fully expanded, which meant opening a trove
+    /// mounted a node for every file in it before the user had asked to see any
+    /// of them. Expanding is cheap and explicit; expanding everything is
+    /// neither. Manual collapse and expansion are still preserved for as long
+    /// as the node lives.
+    /// `untrack` because this is the *initial* state, not a rule: a node that
+    /// is later dragged deeper keeps whatever the user opened or closed.
+    let expanded = $state(untrack(() => depth) === 0);
 
     /// Display name
-    let displayName = $derived.by(() => {
-        const rf = $worldStore.getComponent(id, "renderFile");
-        const path = rf?.settings?.targetPath as string | undefined;
-        if (path) {
-            const normalizedPath = path.replace(/[/\\]+$/, "");
-            const parts = normalizedPath.split(/[/\\]/);
-            return parts[parts.length - 1] || `Entity #${id}`;
-        }
-        return `Entity #${id}`;
-    });
+    let displayName = $derived($worldStore.getDisplayName(id));
 
     /// Attached component types
     let attachedComponents = $derived.by(() => {
@@ -65,10 +67,7 @@
     let canContain = $derived(isContainer(id));
 
     /// Is the item expandable?
-    let hasChildren = $derived.by(() => {
-        const children = $worldStore.getChildren(id);
-        return children.length > 0;
-    });
+    let hasChildren = $derived($worldStore.getChildCount(id) > 0);
 
     /// File icon
     let icon = $derived.by(() => {
@@ -153,6 +152,7 @@
         ondragleave={onDragLeave}
         ondrop={onNodeDrop}
         ondragend={onDragEnd}
+        oncontextmenu={(event) => openContextMenu(event, $worldStore, id)}
     >
         <!-- Expand/collapse toggle -->
         <span

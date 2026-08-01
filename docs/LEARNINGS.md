@@ -22,10 +22,29 @@ optional-dependency bug and sends you off to delete `node_modules`, when the
 real cause was a cross-platform install. `--no-save --no-package-lock` does not
 protect against this; it only spares `package.json` and the lockfile.
 
-To run the suite off-Windows, copy the project and its `node_modules`
-elsewhere and install there. To recover, `npm i` on Windows, or extract the
-package's tarball (`npm pack @rollup/rollup-win32-x64-msvc@<version>`) straight
-into the empty directory.
+To recover, `npm i` on Windows, or extract the package's tarball
+(`npm pack @rollup/rollup-win32-x64-msvc@<version>`) straight into the empty
+directory.
+
+**The way to run the suite off-Windows: a scratch checkout, not a copied
+`node_modules`.** Copying 288 MB of `node_modules` across a mounted Windows
+filesystem takes minutes and often fails outright on symlinks. Copy only the
+sources and configs into a local scratch directory and `npm ci` there — it takes
+about five seconds and touches nothing the Windows install depends on:
+
+```bash
+D=$(mktemp -d) && cp package.json package-lock.json vite.config.ts \
+  tsconfig.json svelte.config.js index.html "$D"/ && cp -r src "$D"/ \
+  && (cd "$D" && npm ci && npx vitest run)
+```
+
+Re-sync with `rm -rf "$D/src" && cp -r src "$D"/` between runs.
+
+**A suite that hangs at `RUN v4.x` is not always the pool.** The `vmForks`
+warning below is real, but running vitest against a project on a *mounted
+network filesystem* produces exactly the same symptom — no output for many
+minutes, with the worker processes alive. Check where the project is before
+suspecting the config.
 
 **Verify npm scripts before running them.** `npm run check` does not exist.
 Read `package.json` instead of guessing. Frontend validation is
@@ -99,6 +118,21 @@ destination paths are equal leaves a stale `parent_id`, and the next reorder
 fails with `Entity N is not a child of M`. Skip only the filesystem rename;
 still update `parent_ids` and persist.
 
+**`is_dir()` follows symlinks, so a directory walk can loop forever.** A link
+pointing at one of its own ancestors is read again under a new path, creating
+entities until memory runs out. Keep a set of canonicalised directories already
+visited.
+
+**`is_dir()` is also a syscall.** Calling it from inside a sort comparator makes
+sorting one directory O(n log n) `stat`s. Read the flag once per entry — from
+`DirEntry::file_type()`, which comes from the directory entry itself — and sort
+precomputed tuples.
+
+**`#[cfg]` on a block does not make it a tail expression.** Writing
+`#[cfg(windows)] { spawn(...) }` as the last thing in a function discards the
+value and the function returns `()`. Put each platform's logic in its own
+`#[cfg]`-gated `fn` and call it.
+
 ## Frontend
 
 **`null` vs `undefined` across the IPC boundary.** Rust's `Option::None`
@@ -167,4 +201,44 @@ container scroll.
 
 **Do not unmount views to switch modes.** Toggling edit/live with `{#if}`
 destroys and rebuilds every rendered file. Render both and toggle visibility
-with a `.hidden { display: none !important; }` class.
+with a `.hidden { display: none !important; }` class. The same applies to
+navigating between focus targets — see the view list in `Desktop.svelte`.
+
+**A helper that scans is a helper that is called in a loop.** `getChildren`
+walked every entity in the world to find one node's children, which reads as
+harmless until you notice the desktop calls it once per rendered node on every
+reactive tick. Index the structure once at load; the fix is smaller than the
+comment explaining why it was needed.
+
+**Returning a fresh array from a `$derived` rebuilds the DOM.** Even when the
+contents are identical, a new array instance makes a keyed `{#each}` re-run and
+tear down its blocks. Cache derived collections and return the same instance
+until something actually invalidates them.
+
+**An `$effect` that writes state it also reads loops.** Maintaining a list
+inside an effect that reads the list makes every write schedule another run.
+Wrap the list access in `untrack()` so the effect depends only on its real
+inputs.
+
+**`aspect-ratio` loses to `height`.** A card carrying both
+`aspect-ratio: 16 / 9` and `height: 100%` in a grid row with
+`align-items: stretch` gets its height from the row, so the aspect ratio never
+applies and every card in a row is as tall as the tallest one. If cards should
+size themselves, they need `align-items: start` and no explicit height.
+
+**`repeat(N, …)` obeys N at any cost.** A fixed column count has no way to say
+"not below this width", so nesting multiplies the divisor and cards become
+slivers. `repeat(auto-fill, minmax(min(max(floor, ideal), 100%), 1fr))` treats
+the configured count as a ceiling and the floor as non-negotiable — and needs no
+measurement, so there is no reflow on mount.
+
+**`display: none` does not stop an `IntersectionObserver` from having already
+fired.** Gate loading on the *first* intersection and unobserve, rather than
+tracking visibility continuously; otherwise hiding a view and showing it again
+reloads everything it holds, which is the opposite of the intent.
+
+**Give JSDOM an `IntersectionObserver` that says "visible".** Without the API,
+`typeof IntersectionObserver === 'undefined'` is the only signal, and every test
+asserting on a card's contents depends on the fallback being "show it". The mock
+in `src/__tests__/setup.ts` reports intersection on `observe()` by default;
+`deferVisibility(true)` holds it back for tests that are about deferral.

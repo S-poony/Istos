@@ -30,22 +30,10 @@
     return (pid !== undefined && pid !== null) ? pid : null;
   }
 
-  /// Get all siblings (children of the same parent, including self).
-  function getSiblings(id: EntityId): EntityId[] {
-    const parentId = getParentId(id);
-    if (parentId === null) {
-      // Root level siblings
-      return [...$worldStore.entities]
-        .filter(([_, e]) => e.parentId === undefined || e.parentId === null)
-        .map(([eid]) => eid);
-    }
-    return $worldStore.getChildren(parentId);
-  }
-
   /// Whether an entity can hold others — it has a `grid`. Not "is it a
   /// folder": there are no folders, only entities that arrange children.
   function isContainer(id: EntityId): boolean {
-    return $worldStore.getComponent(id, "grid") !== undefined;
+    return $worldStore.hasComponent(id, "grid");
   }
 
   function errorText(error: unknown): string {
@@ -60,15 +48,10 @@
   }
 
   /// Check if parentId is an ancestor of childId (or if parentId === childId).
+  /// Delegated to the world, whose walk carries a visited set — the local
+  /// version would spin forever on a parenting cycle.
   function isAncestor(childId: EntityId, parentId: EntityId): boolean {
-    if (childId === parentId) return true;
-    let curr: EntityId | null = childId;
-    while (curr !== null) {
-      const pid = getParentId(curr);
-      if (pid === parentId) return true;
-      curr = pid;
-    }
-    return false;
+    return $worldStore.isAncestorOf(parentId, childId);
   }
 
   function getDropTarget(e: DragEvent, id: EntityId): DropTarget | null {
@@ -139,9 +122,7 @@
         }
 
         const siblings = targetParentId === null
-          ? [...$worldStore.entities]
-              .filter(([_, entity]) => entity.parentId === undefined || entity.parentId === null)
-              .map(([id]) => id)
+          ? $worldStore.getOrderedRoots()
           : $worldStore.getOrderedChildren(targetParentId);
         const withoutSource = siblings.filter((id) => id !== sourceId);
         const targetIndex = withoutSource.indexOf(target.entityId);

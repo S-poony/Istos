@@ -4,6 +4,7 @@
   import { worldStore } from "./lib/stores/world";
   import { pushToast } from "./lib/stores/toasts";
   import { openTroveFlow, troveOpening } from "./lib/trove";
+  import ContextMenu from "./lib/components/ContextMenu.svelte";
   import Desktop from "./lib/components/Desktop.svelte";
   import ModeToggle from "./lib/components/ModeToggle.svelte";
   import ToastStack from "./lib/components/ToastStack.svelte";
@@ -55,6 +56,9 @@
 </script>
 
 <ToastStack />
+<!-- One menu for the whole app, positioned at the cursor. Cards do not each
+     own one; they publish to `contextMenu` and this renders it. -->
+<ContextMenu />
 
 {#if loading}
   <div class="loading">Loading DeskShell...</div>

@@ -41,10 +41,25 @@ events to the frontend, would close this gap.
 
 ## 5. Performance on large troves
 
-`open_trove` scans the whole tree eagerly and the desktop renders every entity
-it is given. Both are fine for a photo folder and painful for a large vault.
-Worth investigating: rendering only what is near the viewport, and deferring
-heavy renderers (PDF, video) until visible.
+Partly done. The desktop no longer loads what it cannot show, no longer scans
+the world to answer a structural question, and no longer renders every child of
+every container it passes — see the indexing, deferred-loading and collapse
+rules in [../DESIGN.md](../DESIGN.md).
+
+What is left is the part that costs the most on a genuinely large trove:
+
+- **Lazy scanning.** `open_trove` still walks the entire tree and writes every
+  entity to SQLite in one transaction before the window shows anything. It
+  should scan to a bounded depth and scan deeper when an entity is entered.
+  This is the change that turns "wait a minute for a 100k-file vault" into
+  "opens immediately", and it is the one that most affects the ECS ↔ filesystem
+  contract, since entities would then come into existence after the open.
+- **Virtualised rendering.** A single directory with thousands of children still
+  mounts a card per child once it is the focused container. Deferred loading
+  keeps that cheap, but the DOM nodes themselves are not free.
+- **Incremental world updates.** `get_world_state` serialises the whole world
+  and the frontend rebuilds its whole mirror on every refresh, so a
+  drag-and-drop of one file costs a full round trip of the trove.
 
 ## 6. Open questions from `plan.md`
 

@@ -72,6 +72,70 @@ class ResizeObserverMock {
 
 globalThis.ResizeObserver = ResizeObserverMock as any;
 
+// Mock IntersectionObserver for jsdom.
+//
+// Cards defer their heavy work until they are near the viewport. JSDOM has no
+// viewport, so by default this mock answers "yes, it is visible" the moment an
+// element is observed — which is what a real browser does for the cards that
+// are on screen, and what every test that asserts on a card's contents assumes.
+//
+// A test about deferral itself calls `deferVisibility(true)` first, then
+// `revealElement` to say when something scrolled into view.
+type IntersectionCallback = (entries: { target: Element; isIntersecting: boolean }[]) => void;
+
+const intersectionObservers = new Set<{
+  callback: IntersectionCallback;
+  targets: Set<Element>;
+}>();
+
+let holdIntersections = false;
+
+class IntersectionObserverMock {
+  private record: { callback: IntersectionCallback; targets: Set<Element> };
+
+  constructor(callback: IntersectionCallback) {
+    this.record = { callback, targets: new Set() };
+    intersectionObservers.add(this.record);
+  }
+
+  observe(target: Element) {
+    this.record.targets.add(target);
+    if (!holdIntersections) {
+      this.record.callback([{ target, isIntersecting: true }]);
+    }
+  }
+
+  unobserve(target: Element) {
+    this.record.targets.delete(target);
+  }
+
+  disconnect() {
+    this.record.targets.clear();
+    intersectionObservers.delete(this.record);
+  }
+
+  takeRecords() {
+    return [];
+  }
+}
+
+globalThis.IntersectionObserver = IntersectionObserverMock as any;
+
+/// Whether newly observed elements start off screen. Reset between tests by the
+/// suite that turns it on.
+export function deferVisibility(deferred: boolean): void {
+  holdIntersections = deferred;
+}
+
+/// Announce that an element has scrolled into view.
+export function revealElement(element: Element): void {
+  for (const observer of intersectionObservers) {
+    if (observer.targets.has(element)) {
+      observer.callback([{ target: element, isIntersecting: true }]);
+    }
+  }
+}
+
 /// Give an element a size and notify anything observing it.
 export function resizeElement(element: Element, width: number, height: number): void {
   Object.defineProperty(element, 'clientWidth', { value: width, configurable: true });

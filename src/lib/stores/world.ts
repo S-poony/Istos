@@ -58,15 +58,12 @@ export function focusEntity(id: EntityId | null): void {
 }
 
 /// Helper to get an entity's display name.
+///
+/// The rule lives on `World` so it can be cached there — sorting one directory
+/// asks for the same name O(n log n) times. This stays as the call site every
+/// component already uses.
 export function getEntityDisplayName(world: World, id: EntityId): string {
-  const rf = world.getComponent(id, "renderFile");
-  const path = rf?.settings?.targetPath as string | undefined;
-  if (path) {
-    const normalized = path.replace(/[/\\]+$/, "");
-    const parts = normalized.split(/[/\\]/);
-    return parts[parts.length - 1] || `Entity #${id}`;
-  }
-  return `Entity #${id}`;
+  return world.getDisplayName(id);
 }
 
 /// Derived store: breadcrumb path items [{ id: EntityId | null, name: string }].

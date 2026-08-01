@@ -21,44 +21,62 @@ pub fn open_trove_impl(
     let mut queue = std::collections::VecDeque::new();
     queue.push_back((std::path::PathBuf::from(path), None));
 
+    // Directories already scanned, by canonical path.
+    //
+    // `is_dir()` follows symlinks, so a link pointing at one of its own
+    // ancestors is a cycle the walk below cannot see: it reads the same
+    // directory again under a different path, forever, creating entities the
+    // whole time. A trove containing one such link would hang the scan and
+    // exhaust memory. Canonicalising collapses the link to its target, which is
+    // the only form in which "have I already been here" is answerable.
+    let mut visited: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+
     while let Some((dir_path, parent_id)) = queue.pop_front() {
+        let canonical = std::fs::canonicalize(&dir_path).unwrap_or_else(|_| dir_path.clone());
+        if !visited.insert(canonical) {
+            info!("Skipping already-scanned directory {}", dir_path.display());
+            continue;
+        }
+
         let entries = std::fs::read_dir(&dir_path).map_err(|e| {
             error!("Failed to read directory {}: {}", dir_path.display(), e);
             format!("Failed to read directory: {}", e)
         })?;
 
-        let mut paths = Vec::new();
+        // Directory-ness and the lowercased name are read once per entry, not
+        // once per comparison. `is_dir()` is a `stat` call: asking for it from
+        // inside the comparator turned sorting one directory into O(n log n)
+        // syscalls, which is most of the cost of scanning a large trove.
+        let mut paths: Vec<(bool, String, PathBuf)> = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|e| {
                 error!("Failed to read entry: {}", e);
                 e.to_string()
             })?;
-            paths.push(entry.path());
+            let path = entry.path();
+            // `is_dir()` and not `entry.file_type()`: the former follows
+            // symlinks, and a link to a directory should be browsable like the
+            // directory it points at. The cycle that follows from that is
+            // handled by `visited` above, not by refusing to follow.
+            let is_dir = path.is_dir();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            paths.push((is_dir, name, path));
         }
 
         // Sort paths: directories first (alphabetically), then files (alphabetically)
-        paths.sort_by(|a, b| {
-            let a_is_dir = a.is_dir();
-            let b_is_dir = b.is_dir();
-            
-            if a_is_dir && !b_is_dir {
-                std::cmp::Ordering::Less
-            } else if !a_is_dir && b_is_dir {
-                std::cmp::Ordering::Greater
-            } else {
-                let a_name = a.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                let b_name = b.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                a_name.cmp(&b_name)
-            }
-        });
+        paths.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
 
-        for path in paths {
+        for (is_dir, _, path) in paths {
             let entity = w.create_entity();
             if let Some(pid) = parent_id {
                 w.parent_ids.insert(entity, pid);
             }
 
-            if path.is_file() {
+            if !is_dir {
                 // Add renderFile component for any file
                 let component = create_component("renderFile", serde_json::json!({
                     "targetPath": path.to_string_lossy(),
@@ -70,7 +88,12 @@ pub fn open_trove_impl(
                 })?;
                 w.add_component(entity, component);
                 file_count += 1;
-            } else if path.is_dir() {
+            } else {
+                // Everything that is not a directory takes the branch above,
+                // including sockets and other exotica. The old `is_file()` /
+                // `is_dir()` pair left those with an entity and no components
+                // at all — present in the world, invisible in every view.
+
                 // Add grid component
                 let component = create_component("grid", serde_json::json!({
                     "columns": 3,
@@ -456,6 +479,36 @@ mod tests {
         // Check if renderFile component is added
         let has_render = world.components.values().any(|comps| comps.iter().any(|c| c.component_type() == "renderFile"));
         assert!(has_render);
+    }
+
+    /// A symlink pointing at one of its own ancestors is a cycle the walk
+    /// cannot see: `is_dir()` follows it, so the same directory is read again
+    /// under a new path, creating entities forever. The scan has to notice it
+    /// has already been somewhere.
+    #[cfg(unix)]
+    #[test]
+    fn test_open_trove_survives_a_symlink_cycle() {
+        let temp_dir = TempDir::new("test_trove_cycle").unwrap();
+        let inner = temp_dir.path().join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        std::fs::File::create(inner.join("leaf.txt")).unwrap();
+        std::os::unix::fs::symlink(temp_dir.path(), inner.join("loop")).unwrap();
+
+        let db_path = temp_dir.path().parent().unwrap().join("test_cycle.db");
+        let conn = crate::db::init_db(&db_path).unwrap();
+        let mut world = crate::ecs::World::new();
+
+        let path = temp_dir.path().to_string_lossy().to_string();
+        assert!(open_trove_impl(&mut world, &conn, &path).is_ok());
+
+        // inner, leaf.txt, loop — and nothing more. The link is still followed
+        // and still browsable; it simply resolves to a directory the scan has
+        // already read.
+        assert_eq!(
+            world.entities.len(),
+            3,
+            "a symlink cycle should not multiply entities"
+        );
     }
 
     #[test]

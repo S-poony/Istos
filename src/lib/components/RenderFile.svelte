@@ -6,7 +6,9 @@
     getEntityDisplayName,
   } from "../stores/world";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { openContextMenu } from "../stores/contextMenu";
   import { isInteractiveTarget, isActivationKey } from "../interaction";
+  import { revealOnce, canObserveVisibility } from "../visibility";
   import RenderMarkdown from "./RenderMarkdown.svelte";
   import RenderPdf from "./RenderPdf.svelte";
   import type { IntrinsicSize } from "../types";
@@ -21,9 +23,14 @@
     /// that it is the entity's whole visible presence, so its child count is
     /// worth stating.
     collapsed?: boolean;
+    /// True when the host grid ran out of width and is drawing rows. The card
+    /// keeps its caption and drops its body: there is no room to render
+    /// anything the body could show, so rendering it would cost work for
+    /// nothing the user can see.
+    dense?: boolean;
   }
 
-  let { entityId, targetPath, scale, position, collapsed = false }: Props = $props();
+  let { entityId, targetPath, scale, position, collapsed = false, dense = false }: Props = $props();
 
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
   let isRoot = $derived(parentId === undefined || parentId === null);
@@ -35,7 +42,10 @@
   /// path, which would be unreadable in a grid cell.
   let captionName = $derived(getEntityDisplayName($worldStore, entityId));
 
-  let childCount = $derived($worldStore.getChildren(entityId).length);
+  /// The count only, never the list: building and sorting a child array to
+  /// render a number is invisible on twelve entities and quadratic on twelve
+  /// thousand.
+  let childCount = $derived($worldStore.getChildCount(entityId));
 
   /// Extension of the file this card stands for, uppercased, or "" when there
   /// is none. Deliberately not an icon: any entity can contain any other, so
@@ -83,6 +93,15 @@
     }
     return "";
   });
+
+  /// Whether this card has come near the viewport yet. Nothing heavy — no
+  /// fetch, no decode, no PDF document — happens before it has. Once true it
+  /// stays true: a card that scrolls away, or whose view is hidden while the
+  /// user looks at something else, must not throw its work away and redo it on
+  /// the way back.
+  let seen = $state(!canObserveVisibility);
+  /// Dense rows render no body at all, so there is nothing to load for one.
+  let loadsContent = $derived(seen && !dense);
 
   let hasError = $state(false);
   let textContent = $state("");
@@ -147,21 +166,27 @@
   });
 
   $effect(() => {
-    if (isText && mediaSrc) {
-      fetch(mediaSrc)
-        .then(res => {
-          if (!res.ok) throw new Error("Failed to load text");
-          return res.text();
-        })
-        .then(text => {
-          textContent = text;
-        })
-        .catch(err => {
-          console.error(`Failed to load text for ${displayName}:`, err);
-          textContent = `Error loading text: ${err.message}`;
-          hasError = true;
-        });
-    }
+    if (!loadsContent || !isText || !mediaSrc) return;
+    /// Guarded like every other async continuation in the app: a response for
+    /// a card that has since been given a different file must not land in it.
+    let current = true;
+    fetch(mediaSrc)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to load text");
+        return res.text();
+      })
+      .then(text => {
+        if (current) textContent = text;
+      })
+      .catch(err => {
+        if (!current) return;
+        console.error(`Failed to load text for ${displayName}:`, err);
+        textContent = `Error loading text: ${err.message}`;
+        hasError = true;
+      });
+    return () => {
+      current = false;
+    };
   });
 
   function handleError(e: Event) {
@@ -190,73 +215,87 @@
 <div
   class="render-file"
   class:audio-file={isAudio}
+  class:text-file={isText}
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
   class:editable={$editMode}
   class:collapsed
+  class:dense
   style={aspectStyle}
   role="button"
   tabindex="0"
   aria-label={captionName}
   data-testid="entity-card"
+  use:revealOnce={() => (seen = true)}
   onclick={handleActivate}
   onkeydown={handleKeydown}
+  oncontextmenu={(event) => openContextMenu(event, $worldStore, entityId)}
 >
-  <div class="file-body">
-    {#if hasError}
-      <div class="file-placeholder error">
-        <span class="file-glyph error-text">⚠</span>
-        <span class="file-kind error-text">Failed to load</span>
-      </div>
-    {:else if isImage}
-      <img
-        bind:this={imgElement}
-        src={mediaSrc}
-        alt={displayName}
-        draggable={false}
-        onerror={handleError}
-        onload={(e) => handleImageLoad(e.currentTarget as HTMLImageElement)}
-      />
-    {:else if isAudio}
-      <audio controls src={mediaSrc} onerror={handleError}>
-        Your browser does not support the audio element.
-      </audio>
-    {:else if isVideo}
-      <video
-        bind:this={videoElement}
-        controls
-        src={mediaSrc}
-        onerror={handleError}
-        onloadedmetadata={(e) => handleVideoMetadata(e.currentTarget as HTMLVideoElement)}
-      >
-        <track kind="captions">
-        Your browser does not support the video element.
-      </video>
-    {:else if isPdf}
-      <RenderPdf
-        {mediaSrc}
-        displayName={displayName}
-        onFirstPageSize={(size) => (intrinsicSize = size)}
-      />
-    {:else if isText}
-      {#if isMarkdown}
-        <RenderMarkdown source={textContent} />
+  {#if !dense}
+    <div class="file-body">
+      {#if hasError}
+        <div class="file-placeholder error">
+          <span class="file-glyph error-text">⚠</span>
+          <span class="file-kind error-text">Failed to load</span>
+        </div>
+      {:else if !loadsContent}
+        <!-- Off screen. The card keeps its shape so the scrollbar does not
+             jump when it does load, and shows what it is going to be. -->
+        <div class="file-placeholder pending" data-testid="pending-content">
+          <span class="file-glyph" aria-hidden="true"></span>
+          {#if fileKind}<span class="file-kind">{fileKind}</span>{/if}
+        </div>
+      {:else if isImage}
+        <img
+          bind:this={imgElement}
+          src={mediaSrc}
+          alt={displayName}
+          draggable={false}
+          onerror={handleError}
+          onload={(e) => handleImageLoad(e.currentTarget as HTMLImageElement)}
+        />
+      {:else if isAudio}
+        <audio controls preload="metadata" src={mediaSrc} onerror={handleError}>
+          Your browser does not support the audio element.
+        </audio>
+      {:else if isVideo}
+        <video
+          bind:this={videoElement}
+          controls
+          preload="metadata"
+          src={mediaSrc}
+          onerror={handleError}
+          onloadedmetadata={(e) => handleVideoMetadata(e.currentTarget as HTMLVideoElement)}
+        >
+          <track kind="captions">
+          Your browser does not support the video element.
+        </video>
+      {:else if isPdf}
+        <RenderPdf
+          {mediaSrc}
+          displayName={displayName}
+          onFirstPageSize={(size) => (intrinsicSize = size)}
+        />
+      {:else if isText}
+        {#if isMarkdown}
+          <RenderMarkdown source={textContent} />
+        {:else}
+          <div class="text-content" data-interactive>
+            <pre>{textContent}</pre>
+          </div>
+        {/if}
       {:else}
-        <div class="text-content" data-interactive>
-          <pre>{textContent}</pre>
+        <div class="file-placeholder">
+          <span class="file-glyph" aria-hidden="true"></span>
+          {#if fileKind}<span class="file-kind">{fileKind}</span>{/if}
         </div>
       {/if}
-    {:else}
-      <div class="file-placeholder">
-        <span class="file-glyph" aria-hidden="true"></span>
-        {#if fileKind}<span class="file-kind">{fileKind}</span>{/if}
-      </div>
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   <!-- The name is always there and never competes with the content: one line,
        secondary colour, truncated. It is how a card says what it is when the
-       content alone does not. -->
+       content alone does not. In a dense row it is the whole card. -->
   <div class="file-caption">
     <span class="caption-name" title={captionName}>{captionName}</span>
     {#if childCount > 0}
@@ -277,7 +316,11 @@
     background-color: var(--bg-secondary);
     border: 1px solid var(--border);
     width: 100%;
-    height: 100%; /* Fill the grid cell height to match row siblings */
+    /* Height comes from the card's own aspect ratio, not from its grid row.
+       `height: 100%` made every card in a row as tall as the tallest one in it,
+       which meant `aspect-ratio` below was decorative and a card's only way to
+       respond to less space was to get narrower. */
+    height: auto;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     /* Lets the caption and any other chrome respond to the card's own width
@@ -342,11 +385,32 @@
   }
 
   /* Below this width the caption would be an ellipsis and nothing else, which
-     tells the user less than the space it costs. */
+     tells the user less than the space it costs. A dense row is exempt: there
+     the caption is the only thing the card has. */
   @container (max-width: 84px) {
-    .file-caption {
+    .render-file:not(.dense) .file-caption {
       display: none;
     }
+  }
+
+  /* A dense card is one row: no body, no aspect ratio, no minimum height. */
+  .render-file.dense {
+    aspect-ratio: auto;
+    min-height: 0;
+    max-height: none;
+    border-radius: 5px;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .render-file.dense .file-caption {
+    background-color: rgba(255, 255, 255, 0.03);
+    border-top: none;
+  }
+
+  .render-file.dense:hover {
+    background-color: rgba(124, 58, 237, 0.12);
   }
 
   :global(.grid-container > .render-file) {
@@ -369,11 +433,29 @@
     min-height: 120px;
   }
 
+  /* Text is the one kind of content whose usefulness is a function of how many
+     lines fit. A 16/9 sliver of a source file shows three lines and a
+     scrollbar, so text keeps a taller floor than the portrait default and is
+     allowed to run further before it stops growing. */
+  :global(.grid-container > .render-file.text-file) {
+    aspect-ratio: var(--card-aspect, 4 / 5);
+    min-height: 240px;
+    max-height: 520px;
+  }
 
   /* Tall enough for the player *and* the caption below it: sizing this to the
      player alone left the transport controls squeezed to nothing. */
   :global(.grid-container > .render-file.audio-file) {
+    aspect-ratio: auto;
     min-height: 82px;
+    max-height: none;
+  }
+
+  /* A dense row overrides every card shape above it: it is a line of text. */
+  :global(.grid-container.dense > .render-file) {
+    aspect-ratio: auto;
+    min-height: 0;
+    max-height: none;
   }
 
   .render-file.editable {
@@ -409,6 +491,12 @@
     height: 100%;
     max-height: 100%;
     overflow: hidden;
+  }
+
+  /* Not yet on screen. Dimmer than a real placeholder so "nothing here" and
+     "not loaded yet" do not look like the same state. */
+  .file-placeholder.pending {
+    opacity: 0.45;
   }
 
   /* A neutral mark, not an icon. Entities are not typed by their container-ness,
@@ -457,11 +545,12 @@
     color: var(--text-primary, #000000);
     font-size: 12px;
   }
-  
+
   .text-content pre {
     margin: 0;
     white-space: pre-wrap;
-    word-break: break-all;
+    word-break: break-word;
     font-family: monospace;
+    line-height: 1.5;
   }
 </style>
