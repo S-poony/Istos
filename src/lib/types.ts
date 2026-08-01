@@ -7,6 +7,13 @@ export interface Position {
   y: number;
 }
 
+/// Intrinsic size of a rendered page or media item, in CSS pixels at scale 1.
+/// Used to give a card the aspect ratio of the content it holds.
+export interface IntrinsicSize {
+  width: number;
+  height: number;
+}
+
 /// Settings for the renderFile component.
 export interface RenderFileSettings {
   targetPath?: string;

@@ -7,6 +7,12 @@
   --accent-hover: #8b5cf6;
   --border: #3a3a4e;
   --grid-gap: 8px;
+
+  /* Semantic status colours. Every success/error/info surface in the app must
+     use these so a failure always reads as a failure. */
+  --success: #10b981;
+  --danger: #ef4444;
+  --info: #60a5fa;
 }
 
 * {

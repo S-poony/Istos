@@ -3,6 +3,7 @@
   import { convertFileSrc } from "@tauri-apps/api/core";
   import RenderMarkdown from "./RenderMarkdown.svelte";
   import RenderPdf from "./RenderPdf.svelte";
+  import type { IntrinsicSize } from "../types";
 
   interface Props {
     entityId: number;
@@ -61,12 +62,27 @@
   let hasError = $state(false);
   let textContent = $state("");
   let orientation = $state<'landscape' | 'portrait' | null>(null);
+  /// Intrinsic size of the rendered content, once the renderer reports it.
+  /// For PDFs this is the first page, so the card matches the real document
+  /// shape instead of assuming portrait.
+  let intrinsicSize = $state<IntrinsicSize | null>(null);
 
   let computedOrientation = $derived.by(() => {
     if (isAudio) return 'landscape';
+    if (intrinsicSize) {
+      return intrinsicSize.width >= intrinsicSize.height ? 'landscape' : 'portrait';
+    }
     if (isText || isPdf) return 'portrait';
     return orientation ?? 'landscape';
   });
+
+  /// Overrides the default per-orientation aspect ratio with the content's own
+  /// ratio when it is known.
+  let aspectStyle = $derived(
+    intrinsicSize && intrinsicSize.width > 0 && intrinsicSize.height > 0
+      ? `--card-aspect: ${intrinsicSize.width} / ${intrinsicSize.height};`
+      : ""
+  );
 
 
 
@@ -88,12 +104,6 @@
       orientation = 'portrait';
     }
   }
-
-  $effect(() => {
-    if (isText || isPdf) {
-      orientation = 'portrait';
-    }
-  });
 
   $effect(() => {
     const img = imgElement;
@@ -141,12 +151,13 @@
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
   class:editable={$editMode}
+  style={aspectStyle}
   onclick={(e) => { e.stopPropagation(); focusEntity(entityId); }}
 >
   {#if hasError}
     <div class="file-placeholder error">
       <span class="file-icon">⚠️</span>
-      <span class="file-name" style="color: #ef4444">Error loading media</span>
+      <span class="file-name error-text">Error loading media</span>
       <span class="file-name" style="font-size: 10px;">{displayName}</span>
     </div>
   {:else if isImage}
@@ -174,7 +185,11 @@
       Your browser does not support the video element.
     </video>
   {:else if isPdf}
-    <RenderPdf {mediaSrc} displayName={displayName} />
+    <RenderPdf
+      {mediaSrc}
+      displayName={displayName}
+      onFirstPageSize={(size) => (intrinsicSize = size)}
+    />
   {:else if isText}
     {#if isMarkdown}
       <RenderMarkdown source={textContent} />
@@ -215,16 +230,17 @@
 
   /* Explicit heights based on grid row spans to prevent stretching when rows expand.
      Uses direct child selectors to avoid leaking into nested grids. */
-  /* Portrait items: tall aspect ratio, single row */
+  /* Portrait items: tall aspect ratio, single row. --card-aspect is set inline
+     when the content reports its own dimensions (e.g. a PDF's first page). */
   :global(.grid-container > .render-file.portrait) {
-    aspect-ratio: 3 / 4;
+    aspect-ratio: var(--card-aspect, 3 / 4);
     min-height: 180px;
     max-height: 400px;
   }
 
   /* Landscape items: wide aspect ratio, single row */
   :global(.grid-container > .render-file.landscape) {
-    aspect-ratio: 16 / 9;
+    aspect-ratio: var(--card-aspect, 16 / 9);
     min-height: 120px;
   }
 
@@ -285,6 +301,11 @@
     overflow: hidden;
     max-height: 4.5em; /* approximate height for 3 lines */
   }
+
+  .file-name.error-text {
+    color: var(--danger);
+  }
+
   .text-content {
     width: 100%;
     height: 100%;

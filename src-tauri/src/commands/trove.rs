@@ -117,12 +117,25 @@ pub fn open_trove_impl(
 }
 
 /// Opens a trove folder and populates the world with entities.
+///
+/// Declared `async` on purpose. A synchronous Tauri command runs on the main
+/// thread, so scanning a large trove froze the whole window - including the
+/// file dialog, which made it impossible to open another trove until the
+/// previous scan finished. As an async command this runs on the async runtime
+/// and leaves the UI responsive.
 #[tauri::command]
-pub fn open_trove(
+pub async fn open_trove(
     world: State<'_, WorldState>,
     db: State<'_, DbState>,
     path: String,
 ) -> Result<(), String> {
+    // The locking happens inside a plain sync helper so that no MutexGuard is
+    // ever a local of this async fn. That keeps the returned future `Send`,
+    // which Tauri requires of async commands.
+    open_trove_locked(world.inner(), db.inner(), &path)
+}
+
+fn open_trove_locked(world: &WorldState, db: &DbState, path: &str) -> Result<(), String> {
     info!("Opening trove at path: {}", path);
     let mut w = world.0.lock().map_err(|e| {
         error!("Failed to lock world: {}", e);
@@ -132,15 +145,22 @@ pub fn open_trove(
         error!("Failed to lock db: {}", e);
         e.to_string()
     })?;
-    open_trove_impl(&mut w, &conn, &path)
+    open_trove_impl(&mut w, &conn, path)
 }
 
 /// Returns the full world state to the frontend.
+///
+/// Async for the same reason as `open_trove`: serialising a large world is not
+/// work the main thread should be doing.
 #[tauri::command]
-pub fn get_world_state(
+pub async fn get_world_state(
     world: State<'_, WorldState>,
     db: State<'_, DbState>,
 ) -> Result<WorldSnapshot, String> {
+    world_snapshot_locked(world.inner(), db.inner())
+}
+
+fn world_snapshot_locked(world: &WorldState, db: &DbState) -> Result<WorldSnapshot, String> {
     let w = world.0.lock().map_err(|e| e.to_string())?;
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut snapshot = WorldSnapshot::from(&*w);

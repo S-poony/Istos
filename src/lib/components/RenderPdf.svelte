@@ -1,33 +1,68 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import * as pdfjsLib from "pdfjs-dist";
   import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
   // Set the worker source for pdfjs-dist using Vite URL resolution
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
+  import type { IntrinsicSize } from "../types";
+
   interface Props {
     mediaSrc: string;
     displayName?: string;
+    /// Reports the first page's intrinsic size once it is known, so the host
+    /// card can adopt the document's real aspect ratio instead of assuming
+    /// every PDF is portrait.
+    onFirstPageSize?: (size: IntrinsicSize) => void;
   }
 
-  let { mediaSrc, displayName }: Props = $props();
+  let { mediaSrc, displayName, onFirstPageSize }: Props = $props();
 
-  let pdfDoc = $state.raw<any>(null);
-  let pageNum = $state(1);
+  /// Zoom is expressed as a factor of the current fit scale, not an absolute
+  /// PDF scale. That keeps "100%" meaningful in a 200px grid cell and in a
+  /// full window alike, and lets the user's zoom survive a resize.
+  const MIN_ZOOM = 0.25;
+  const MAX_ZOOM = 8;
+  const ZOOM_STEP = 0.25;
+  /// Floor for the fit scale so a page in a tiny container still renders
+  /// something rather than collapsing to zero pixels.
+  const MIN_FIT_SCALE = 0.05;
+  /// Matches the padding of .canvas-scroll-container.
+  const CANVAS_PADDING = 16;
+
+  type FitMode = "page" | "width";
+
+  let doc = $state.raw<any>(null);
   let numPages = $state(0);
-  let scale = $state(1.0);
+  let pageNum = $state(1);
+  /// Intrinsic size of a page at PDF scale 1, tagged with the page it belongs
+  /// to. Keeping the two together means the renderer never mixes a new page
+  /// number with the previous page's dimensions.
+  let pageMeta = $state<{ page: number; size: IntrinsicSize } | null>(null);
+  let fitMode = $state<FitMode>("page");
+  let zoomFactor = $state(1);
   let loading = $state(true);
   let rendering = $state(false);
   let error = $state<string | null>(null);
+  let pageInputVal = $state("1");
+  let reloadNonce = $state(0);
 
   let canvasElement = $state<HTMLCanvasElement | null>(null);
+  let scrollElement = $state<HTMLDivElement | null>(null);
+  let box = $state({ width: 0, height: 0 });
+  /// Non-reactive mirror of `box`, used to drop duplicate resize notifications
+  /// without making the measuring effect depend on its own output.
+  let measured = { width: -1, height: -1 };
+
+  let loadTask: any = null;
   let renderTask: any = null;
-  let activeLoadingTask: any = null;
-  let pageInputVal = $state("1");
-  let containerWidth = $state(0);
-  let baseScale = $state(1.0); // Scale that fits PDF width to container
-  let viewportElement = $state<HTMLDivElement | null>(null);
+  /// Monotonic counters. Any async continuation compares its own generation
+  /// against the current one and bails out if it has been superseded, so a
+  /// slow response for an old document can never overwrite current state.
+  let loadGeneration = 0;
+  let pageGeneration = 0;
+  let renderGeneration = 0;
+  let firstPageReported = false;
 
   function safelyCall(task: any, method: "destroy" | "cancel") {
     if (typeof task?.[method] !== "function") return;
@@ -41,41 +76,120 @@
     }
   }
 
+  /// Size of the page that is currently displayable, or null while the current
+  /// page's metadata is still being fetched.
+  let currentSize = $derived(
+    pageMeta && pageMeta.page === pageNum ? pageMeta.size : null
+  );
+
+  /// Scale that makes the current page fit the measured viewport. Falls back to
+  /// 1 while the viewport has not been measured, so a render is never issued
+  /// against a zero-sized box.
+  let fitScale = $derived.by(() => {
+    if (!currentSize || currentSize.width <= 0 || currentSize.height <= 0) return 1;
+
+    const availableWidth = box.width - CANVAS_PADDING * 2;
+    const availableHeight = box.height - CANVAS_PADDING * 2;
+    if (availableWidth <= 0) return 1;
+
+    const widthScale = availableWidth / currentSize.width;
+    if (fitMode === "width" || availableHeight <= 0) {
+      return Math.max(widthScale, MIN_FIT_SCALE);
+    }
+    return Math.max(Math.min(widthScale, availableHeight / currentSize.height), MIN_FIT_SCALE);
+  });
+
+  let scale = $derived(fitScale * zoomFactor);
+
   // Keep page input in sync with current page number
   $effect(() => {
     pageInputVal = String(pageNum);
   });
 
-  // Load PDF when mediaSrc changes
+  // Load the document whenever the source changes (or a retry is requested).
   $effect(() => {
-    if (mediaSrc) {
-      loadPdf(mediaSrc);
-    }
+    const src = mediaSrc;
+    reloadNonce;
+    if (src) loadPdf(src);
+
     return () => {
-      if (activeLoadingTask) {
-        safelyCall(activeLoadingTask, "destroy");
-        activeLoadingTask = null;
+      loadGeneration++;
+      if (loadTask) {
+        safelyCall(loadTask, "destroy");
+        loadTask = null;
       }
-      if (pdfDoc) {
-        safelyCall(pdfDoc, "destroy");
-        pdfDoc = null;
+      if (doc) {
+        safelyCall(doc, "destroy");
+        doc = null;
       }
     };
   });
 
-  // Calculate fit scale when container width changes
+  // Measure the scroll viewport. Declared before the render effect so that the
+  // very first render of a newly mounted canvas already sees real dimensions.
+  // clientWidth/Height is read up front because a ResizeObserver is not
+  // guaranteed to deliver its first entry before that render.
   $effect(() => {
-    if (pdfDoc && containerWidth > 0) {
-      calculateFitScale();
-    }
+    const element = scrollElement;
+    if (!element) return;
+
+    const apply = (width: number, height: number) => {
+      if (width === measured.width && height === measured.height) return;
+      measured = { width, height };
+      box = { width, height };
+    };
+    apply(element.clientWidth, element.clientHeight);
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        apply(entry.contentRect.width, entry.contentRect.height);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
   });
 
-  // Render PDF page when document, page number, or scale changes
+  // Fetch metadata for the current page. Runs once per page, independently of
+  // zoom and resize, so zooming or resizing never refetches the page.
   $effect(() => {
-    if (pdfDoc && canvasElement) {
-      renderPage(pageNum, scale);
-    }
+    const currentDoc = doc;
+    const target = pageNum;
+    if (!currentDoc) return;
+
+    const generation = ++pageGeneration;
+    Promise.resolve(currentDoc.getPage(target))
+      .then((page: any) => {
+        if (generation !== pageGeneration) return;
+        const viewport = page.getViewport({ scale: 1 });
+        const size = { width: viewport.width, height: viewport.height };
+        pageMeta = { page: target, size };
+        if (target === 1 && !firstPageReported) {
+          firstPageReported = true;
+          onFirstPageSize?.(size);
+        }
+      })
+      .catch((e: any) => {
+        if (generation !== pageGeneration) return;
+        console.error("Failed to read PDF page:", e);
+        error = e instanceof Error ? e.message : String(e);
+      });
+  });
+
+  // Render. Waits until the page's own dimensions are known, so the first paint
+  // already uses the fitted scale instead of rendering at 1.0 and again at fit.
+  // While waiting, the previously rendered page stays on screen.
+  $effect(() => {
+    const currentDoc = doc;
+    const canvas = canvasElement;
+    const target = pageNum;
+    const targetScale = scale;
+    if (!currentDoc || !canvas || !currentSize || targetScale <= 0) return;
+
+    renderPage(currentDoc, canvas, target, targetScale);
+
     return () => {
+      renderGeneration++;
       if (renderTask) {
         safelyCall(renderTask, "cancel");
         renderTask = null;
@@ -83,140 +197,145 @@
     };
   });
 
-  // Set up resize observer
-  onMount(() => {
-    if (viewportElement) {
-      const resizeObserver = new ResizeObserver(handleResize);
-      resizeObserver.observe(viewportElement);
-      return () => resizeObserver.disconnect();
-    }
-  });
-
   async function loadPdf(src: string) {
+    const generation = ++loadGeneration;
     loading = true;
     error = null;
     pageNum = 1;
-    pdfDoc = null;
+    pageMeta = null;
+    doc = null;
+    firstPageReported = false;
 
-    if (activeLoadingTask) {
-      safelyCall(activeLoadingTask, "destroy");
-      activeLoadingTask = null;
+    if (loadTask) {
+      safelyCall(loadTask, "destroy");
+      loadTask = null;
     }
 
-    const currentTask = pdfjsLib.getDocument({ url: src });
-    activeLoadingTask = currentTask;
+    const task = pdfjsLib.getDocument({ url: src });
+    loadTask = task;
 
     try {
-      const doc = await currentTask.promise;
-      if (activeLoadingTask === currentTask) {
-        pdfDoc = doc;
-        numPages = doc.numPages;
+      const loaded = await task.promise;
+      if (generation !== loadGeneration) {
+        safelyCall(loaded, "destroy");
+        return;
       }
+      doc = loaded;
+      numPages = loaded.numPages;
     } catch (e: any) {
-      if (activeLoadingTask === currentTask) {
-        console.error("Failed to load PDF:", e);
-        error = e instanceof Error ? e.message : String(e);
-      }
+      if (generation !== loadGeneration) return;
+      console.error("Failed to load PDF:", e);
+      error = e instanceof Error ? e.message : String(e);
     } finally {
-      if (activeLoadingTask === currentTask) {
-        activeLoadingTask = null;
+      if (generation === loadGeneration) {
+        loadTask = null;
+        loading = false;
       }
-      loading = false;
     }
   }
 
-  async function renderPage(targetPage: number, targetScale: number) {
-    if (!pdfDoc || !canvasElement) return;
+  async function renderPage(
+    currentDoc: any,
+    canvas: HTMLCanvasElement,
+    target: number,
+    targetScale: number
+  ) {
+    const generation = ++renderGeneration;
+
+    // Cancel the in-flight paint before touching the canvas: resizing a canvas
+    // clears it, and a live render task would keep drawing into it.
+    if (renderTask) {
+      safelyCall(renderTask, "cancel");
+      renderTask = null;
+    }
+
     rendering = true;
     try {
-      const page = await pdfDoc.getPage(targetPage);
+      const page = await currentDoc.getPage(target);
+      if (generation !== renderGeneration) return;
+
       const viewport = page.getViewport({ scale: targetScale });
-      const context = canvasElement.getContext("2d");
+      const context = canvas.getContext("2d");
       if (!context) return;
 
-      canvasElement.width = viewport.width;
-      canvasElement.height = viewport.height;
+      // Back the canvas with device pixels for a sharp image while keeping the
+      // CSS box at the logical viewport size.
+      const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+      canvas.width = Math.max(1, Math.floor(viewport.width * dpr));
+      canvas.height = Math.max(1, Math.floor(viewport.height * dpr));
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
 
-      if (renderTask) {
-        safelyCall(renderTask, "cancel");
-      }
-
-      renderTask = page.render({
+      const task = page.render({
         canvasContext: context,
-        viewport
+        viewport,
+        transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
       });
-
-      await renderTask.promise;
+      renderTask = task;
+      await task.promise;
     } catch (e: any) {
       if (e && e.name !== "RenderingCancelledException") {
         console.error("Failed to render page:", e);
       }
     } finally {
-      rendering = false;
-    }
-  }
-
-  function calculateFitScale() {
-    if (!pdfDoc || !containerWidth) return;
-    pdfDoc.getPage(1).then((page: any) => {
-      const viewport = page.getViewport({ scale: 1.0 });
-      const availableWidth = containerWidth - 32; // subtract padding
-      if (availableWidth > 0 && viewport.width > 0) {
-        baseScale = availableWidth / viewport.width;
-        scale = baseScale;
+      if (generation === renderGeneration) {
+        renderTask = null;
+        rendering = false;
       }
-    });
+    }
   }
 
-  function handleResize(entries: ResizeObserverEntry[]) {
-    for (const entry of entries) {
-      containerWidth = entry.contentRect.width;
-    }
+  function goToPage(target: number) {
+    const clamped = Math.min(Math.max(target, 1), Math.max(numPages, 1));
+    if (clamped !== pageNum) pageNum = clamped;
   }
 
   function handlePrevPage() {
-    if (pageNum > 1) {
-      pageNum--;
-    }
+    goToPage(pageNum - 1);
   }
 
   function handleNextPage() {
-    if (pageNum < numPages) {
-      pageNum++;
-    }
+    goToPage(pageNum + 1);
   }
 
   function handlePageInputChange(e: Event) {
     const val = parseInt((e.target as HTMLInputElement).value, 10);
     if (!isNaN(val) && val >= 1 && val <= numPages) {
-      pageNum = val;
+      goToPage(val);
     } else {
       pageInputVal = String(pageNum);
     }
   }
 
+  /// Clamps rather than refuses, so a click at the boundary still lands on the
+  /// limit instead of silently doing nothing.
+  function setZoom(factor: number) {
+    zoomFactor = Math.min(Math.max(factor, MIN_ZOOM), MAX_ZOOM);
+  }
+
   function handleZoomIn() {
-    const newScale = scale + 0.25;
-    const maxScale = baseScale * 3; // Allow up to 3x fit-width
-    if (newScale <= maxScale) {
-      scale = newScale;
-    }
+    setZoom(zoomFactor + ZOOM_STEP);
   }
 
   function handleZoomOut() {
-    const newScale = scale - 0.25;
-    const minScale = baseScale * 0.5; // Allow down to 50% of fit-width
-    if (newScale >= minScale) {
-      scale = newScale;
-    }
+    setZoom(zoomFactor - ZOOM_STEP);
   }
 
   function handleZoomReset() {
-    scale = baseScale;
+    zoomFactor = 1;
+  }
+
+  function toggleFitMode() {
+    fitMode = fitMode === "page" ? "width" : "page";
+    zoomFactor = 1;
+  }
+
+  function handleRetry() {
+    reloadNonce++;
   }
 </script>
 
-<div class="pdf-viewer-container" bind:this={viewportElement}>
+<div class="pdf-viewer-container">
   <div class="pdf-viewport">
     {#if loading}
       <div class="loading-state">
@@ -228,11 +347,16 @@
         <span class="error-icon">⚠️</span>
         <p>Error loading PDF:</p>
         <pre>{error}</pre>
+        <button type="button" class="retry-btn" onclick={handleRetry}>Retry</button>
       </div>
     {:else}
-      <div class="canvas-scroll-container" class:rendering={rendering}>
+      <div
+        class="canvas-scroll-container"
+        class:rendering
+        bind:this={scrollElement}
+      >
         <div class="pdf-canvas-wrapper">
-          <canvas bind:this={canvasElement}></canvas>
+          <canvas bind:this={canvasElement} aria-label={displayName ?? "PDF page"}></canvas>
         </div>
       </div>
     {/if}
@@ -254,6 +378,7 @@
             type="text"
             value={pageInputVal}
             onchange={handlePageInputChange}
+            aria-label="Page number"
             class="page-input"
           />
           <span class="page-total">/ {numPages}</span>
@@ -273,16 +398,16 @@
       <div class="toolbar-section zoom">
         <button
           onclick={handleZoomOut}
-          disabled={scale <= baseScale * 0.5}
+          disabled={zoomFactor <= MIN_ZOOM}
           title="Zoom Out"
           class="toolbar-btn"
         >
           －
         </button>
-        <span class="zoom-level">{Math.round((scale / baseScale) * 100)}%</span>
+        <span class="zoom-level">{Math.round(zoomFactor * 100)}%</span>
         <button
           onclick={handleZoomIn}
-          disabled={scale >= baseScale * 3}
+          disabled={zoomFactor >= MAX_ZOOM}
           title="Zoom In"
           class="toolbar-btn"
         >
@@ -290,11 +415,18 @@
         </button>
         <button
           onclick={handleZoomReset}
-          disabled={scale === baseScale}
+          disabled={zoomFactor === 1}
           title="Reset Zoom"
           class="toolbar-btn reset-btn"
         >
           ↺
+        </button>
+        <button
+          onclick={toggleFitMode}
+          title={fitMode === "page" ? "Fit Width" : "Fit Page"}
+          class="toolbar-btn fit-btn"
+        >
+          {fitMode === "page" ? "↔" : "⤢"}
         </button>
       </div>
     </div>
@@ -307,27 +439,34 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    min-height: 200px;
+    /* No min-height: the host grid cell owns the sizing. A min-height here
+       pushed the toolbar out of small cells. */
+    min-height: 0;
     background-color: var(--bg-primary);
     position: relative;
     overflow: hidden;
+    container-type: inline-size;
   }
 
   .pdf-viewport {
     flex: 1;
     position: relative;
+    /* min-height: 0 lets this flex child actually shrink so the toolbar below
+       always stays inside the container. */
+    min-height: 0;
     overflow: hidden;
     width: 100%;
-    height: 100%;
   }
 
+  /* Centering an overflowing flex item with justify-content makes the overflow
+     on the leading side unreachable by scrolling. `margin: auto` on the child
+     centers when there is spare room and collapses to 0 when there is not, so
+     both edges stay scrollable. */
   .canvas-scroll-container {
     width: 100%;
     height: 100%;
     overflow: auto;
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
     padding: 16px;
     background-color: var(--bg-primary);
     transition: opacity 0.2s;
@@ -338,15 +477,16 @@
   }
 
   .pdf-canvas-wrapper {
+    margin: auto;
+    flex: 0 0 auto;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     border-radius: 4px;
     background-color: #ffffff;
-    display: inline-block;
+    line-height: 0;
   }
 
   .pdf-canvas-wrapper canvas {
     display: block;
-    height: auto;
   }
 
   .loading-state,
@@ -360,6 +500,7 @@
     padding: 24px;
     text-align: center;
     color: var(--text-secondary);
+    overflow: auto;
   }
 
   .error-state pre {
@@ -370,9 +511,15 @@
     border-radius: 4px;
     max-width: 90%;
     font-size: 11px;
-    color: #ef4444;
+    color: var(--danger);
     word-break: break-all;
     white-space: pre-wrap;
+  }
+
+  .retry-btn {
+    margin-top: 10px;
+    font-size: 12px;
+    padding: 4px 12px;
   }
 
   .error-icon {
@@ -396,11 +543,14 @@
     }
   }
 
+  /* The toolbar wraps instead of hiding controls: every action stays reachable
+     no matter how narrow the container gets. */
   .pdf-toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 16px;
+    gap: 8px 16px;
     padding: 8px 16px;
     background-color: var(--bg-secondary);
     border-top: 1px solid var(--border);
@@ -447,7 +597,8 @@
     cursor: not-allowed;
   }
 
-  .reset-btn {
+  .reset-btn,
+  .fit-btn {
     font-size: 14px;
   }
 
@@ -488,14 +639,10 @@
     color: var(--text-secondary);
   }
 
-  /* Container query responsive toolbar */
-  .pdf-viewer-container {
-    container-type: inline-size;
-  }
-
+  /* Container query responsive toolbar: controls shrink, they never disappear. */
   @container (max-width: 350px) {
     .pdf-toolbar {
-      gap: 8px;
+      gap: 6px 8px;
       padding: 6px 8px;
     }
 
@@ -521,25 +668,14 @@
     }
   }
 
-  @container (max-width: 250px) {
-    .toolbar-section.zoom .zoom-level {
-      display: none;
-    }
-  }
-
-  @container (max-width: 150px) {
+  @container (max-width: 200px) {
     .pdf-toolbar {
       gap: 4px;
       padding: 4px;
     }
 
-    .toolbar-divider,
-    .toolbar-section.zoom {
+    .toolbar-divider {
       display: none;
-    }
-
-    .toolbar-section.navigation {
-      gap: 4px;
     }
 
     .toolbar-btn {
@@ -554,8 +690,13 @@
       font-size: 10px;
     }
 
-    .page-total {
+    .page-total,
+    .zoom-level {
       font-size: 10px;
+    }
+
+    .zoom-level {
+      min-width: 26px;
     }
   }
 </style>

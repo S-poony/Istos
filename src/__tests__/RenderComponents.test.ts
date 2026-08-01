@@ -12,14 +12,26 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 // Mock pdfjs-dist variables using vi.hoisted to ensure they are available to vi.mock
-const { mockGetPage, mockDestroy, mockPdfDoc } = vi.hoisted(() => {
-  const mockGetPage = vi.fn().mockResolvedValue({
-    getViewport: vi.fn().mockReturnValue({ width: 600, height: 800 }),
-    render: vi.fn().mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: vi.fn(),
-    }),
+const { mockGetPage, mockDestroy, mockPdfDoc, mockRender, pageDims } = vi.hoisted(() => {
+  // Mutable so individual tests can describe a landscape or portrait document.
+  const pageDims = { width: 600, height: 800 };
+
+  const mockRender = vi.fn().mockReturnValue({
+    promise: Promise.resolve(),
+    cancel: vi.fn(),
   });
+
+  // Scale-aware viewport: the component derives fit scales from these numbers,
+  // so a viewport that ignored `scale` would hide real regressions.
+  const mockGetPage = vi.fn().mockImplementation(() =>
+    Promise.resolve({
+      getViewport: ({ scale = 1 }: { scale?: number } = {}) => ({
+        width: pageDims.width * scale,
+        height: pageDims.height * scale,
+      }),
+      render: mockRender,
+    })
+  );
 
   const mockDestroy = vi.fn();
 
@@ -29,7 +41,7 @@ const { mockGetPage, mockDestroy, mockPdfDoc } = vi.hoisted(() => {
     destroy: mockDestroy,
   };
 
-  return { mockGetPage, mockDestroy, mockPdfDoc };
+  return { mockGetPage, mockDestroy, mockPdfDoc, mockRender, pageDims };
 });
 
 vi.mock('pdfjs-dist', () => {
@@ -83,6 +95,8 @@ describe('RenderMarkdown Component', () => {
 describe('RenderPdf Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pageDims.width = 600;
+    pageDims.height = 800;
   });
 
   it('loads the PDF and renders controls and canvas', async () => {
@@ -157,6 +171,71 @@ describe('RenderPdf Component', () => {
     expect(screen.getByText('100%')).toBeInTheDocument();
     expect(zoomResetBtn).toBeDisabled();
   });
+  it('paints the first page exactly once instead of rendering at 1.0 and again at fit', async () => {
+    render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+    await waitFor(() => expect(mockRender).toHaveBeenCalled());
+
+    // Let any further effect flush settle before asserting there was no second pass.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockRender).toHaveBeenCalledTimes(1);
+  });
+
+  it('zooms further out than the old 50% floor', async () => {
+    render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+
+    const zoomOutBtn = screen.getByTitle('Zoom Out');
+    for (let i = 0; i < 3; i++) await fireEvent.click(zoomOutBtn);
+
+    expect(screen.getByText('25%')).toBeInTheDocument();
+    expect(zoomOutBtn).toBeDisabled();
+  });
+
+  it('zooms further in than the old 300% ceiling', async () => {
+    render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+
+    const zoomInBtn = screen.getByTitle('Zoom In');
+    for (let i = 0; i < 9; i++) await fireEvent.click(zoomInBtn);
+
+    expect(screen.getByText('325%')).toBeInTheDocument();
+    expect(zoomInBtn).not.toBeDisabled();
+  });
+
+  it('keeps zoom controls reachable rather than hiding them', async () => {
+    render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+
+    for (const title of ['Zoom In', 'Zoom Out', 'Reset Zoom', 'Previous Page', 'Next Page']) {
+      expect(screen.getByTitle(title)).toBeInTheDocument();
+    }
+    // Fit mode is togglable, so only one of the two labels is present at a time.
+    expect(screen.getByTitle(/^Fit (Width|Page)$/)).toBeInTheDocument();
+  });
+
+  it('reports the first page size so the host can match the document shape', async () => {
+    pageDims.width = 900;
+    pageDims.height = 500;
+    const onFirstPageSize = vi.fn();
+
+    render(RenderPdf, { mediaSrc: 'wide.pdf', onFirstPageSize });
+
+    await waitFor(() => {
+      expect(onFirstPageSize).toHaveBeenCalledWith({ width: 900, height: 500 });
+    });
+    expect(onFirstPageSize).toHaveBeenCalledTimes(1);
+  });
+
   it('does not throw when a PDF object lacks a destroy method during teardown', async () => {
     const { unmount } = render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
     await waitFor(() => {
@@ -224,8 +303,47 @@ describe('Integration inside RenderFile.svelte', () => {
     await waitFor(() => {
       expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
     });
-    
+
     // Page count indicator verify
     expect(screen.getByText('/ 5')).toBeInTheDocument();
+  });
+
+  it('gives a landscape PDF card the aspect ratio of its first page', async () => {
+    pageDims.width = 1000;
+    pageDims.height = 500;
+
+    worldStore.loadFromData({
+      entities: [
+        {
+          id: 3,
+          components: [
+            {
+              componentType: 'renderFile',
+              settings: { targetPath: 'slides.pdf', scale: 1, position: { x: 0, y: 0 } },
+            },
+          ],
+        },
+      ],
+    });
+
+    const { container } = render(RenderFile, {
+      entityId: 3,
+      targetPath: 'slides.pdf',
+      scale: 1,
+      position: { x: 0, y: 0 },
+    });
+
+    const card = container.querySelector('.render-file') as HTMLElement;
+    // Before the page is measured a PDF falls back to the portrait default.
+    expect(card).toHaveClass('portrait');
+
+    await waitFor(() => {
+      expect(card.getAttribute('style') ?? '').toContain('--card-aspect: 1000 / 500');
+    });
+    expect(card).toHaveClass('landscape');
+    expect(card).not.toHaveClass('portrait');
+
+    pageDims.width = 600;
+    pageDims.height = 800;
   });
 });
