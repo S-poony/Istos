@@ -78,12 +78,17 @@ pub fn stop_watching(app: &AppHandle) {
     // the world lock, and one already inside its quiet period will fail the
     // check when it wakes.
     state.generation.fetch_add(1, Ordering::SeqCst);
-    match state.watcher.lock() {
-        Ok(mut slot) => {
-            // Dropping the watcher closes its channel, which is what ends the
-            // worker thread.
-            *slot = None;
-        }
+
+    // The lock result is bound to a local rather than matched on directly. A
+    // `MutexGuard` borrowed from managed state, left as the tail temporary of
+    // the last block in a function, is dropped *after* the `State` it borrows
+    // from — which does not compile. A named local declared after `state` is
+    // dropped before it.
+    let slot = state.watcher.lock();
+    match slot {
+        // Dropping the watcher closes its channel, which is what ends the
+        // worker thread.
+        Ok(mut slot) => *slot = None,
         Err(e) => error!("Failed to lock the watch state to stop watching: {}", e),
     }
 }

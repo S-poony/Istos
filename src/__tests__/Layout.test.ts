@@ -185,11 +185,8 @@ describe('Card kinds', () => {
         });
 
         const { container } = render(RenderEntity, { entityId: 1 });
-        const card = container.querySelector('.render-file')!;
 
-        expect(card).toHaveClass('pdf-file');
-        // Not a text card: the two have different floors and must not share one.
-        expect(card).not.toHaveClass('text-file');
+        expect(container.querySelector('.render-file')).toHaveClass('pdf-file');
     });
 
     it('does not mark other files as PDFs', () => {
@@ -198,6 +195,34 @@ describe('Card kinds', () => {
         const { container } = render(RenderEntity, { entityId: 100 });
 
         expect(container.querySelector('.render-file')).not.toHaveClass('pdf-file');
+    });
+
+    /// A focused card is the whole view, not one item in a grid, so none of the
+    /// grid sizing rules reach it. Content that measures its own box to decide
+    /// what to draw — a PDF viewer, unlike an image — needs to be told which of
+    /// the two it is.
+    it('marks the card the user navigated into as focused', async () => {
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 1,
+                    components: [
+                        { componentType: 'renderFile', settings: { targetPath: '/Folder/slides.pdf', scale: 1, position: { x: 0, y: 0 } } },
+                    ],
+                },
+            ],
+        });
+
+        const { container } = render(RenderEntity, { entityId: 1 });
+        expect(container.querySelector('.render-file')).not.toHaveClass('focused');
+
+        focusEntity(1);
+        await tick();
+        expect(container.querySelector('.render-file')).toHaveClass('focused');
+
+        focusEntity(null);
+        await tick();
+        expect(container.querySelector('.render-file')).not.toHaveClass('focused');
     });
 });
 

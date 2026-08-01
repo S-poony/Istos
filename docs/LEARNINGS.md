@@ -219,6 +219,20 @@ scroll event it provokes cannot record a clamped 0 over the value being put
 back. Under JSDOM `scrollTop` is permanently 0, so a test has to redefine the
 property on the element to have anything to assert about.
 
+**Grid sizing rules do not reach a focused card.** Everything sized by
+`:global(.grid-container > .render-file…)` stops applying the moment the user
+navigates into that entity, because the card is then a direct child of
+`.desktop-view`. Content with an intrinsic size does not notice; a PDF viewer,
+which measures its box and renders to fit, collapses to a stamp. Fixing the
+in-grid floor and calling it done means testing the one case that was still
+broken and finding it unchanged.
+
+**A `MutexGuard` from `app.state()` must be a named local.** Left as the tail
+temporary of a function's last block, it is dropped *after* the `State` it
+borrowed from, and `rustc` reports `does not live long enough` on the `State`
+binding rather than on the guard. Bind the lock result to a local declared after
+the state, or end the block with a `;`.
+
 **Two scroll containers, one page.** `.desktop-container` carried `height: 100%`
 *and* `min-height: 500px`, so on a short window it outgrew the `<main>` it sits
 in and both scrolled. Everything that reads or writes a scroll position then

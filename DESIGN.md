@@ -336,12 +336,22 @@ and from an orientation default otherwise.
 - PDFs report their first page's size through `onFirstPageSize`, which sets
   `--card-aspect` inline. **A PDF is not assumed to be portrait** — a slide deck
   is landscape and should look like one.
-- **A PDF card has its own floor, above every orientation default**
-  (`.pdf-file`, 320–640px). A PDF card is not a picture of a page: it carries a
-  toolbar under the page and a caption under that, out of the same box. At the
-  120px landscape floor the viewer ended up shorter than its own toolbar needs
-  and dropped it entirely, leaving a page the user could neither read nor turn.
-  Text keeps a taller floor for the same kind of reason.
+- **A PDF card takes the same floor as a text card** (`.pdf-file`, 240–520px,
+  above every orientation default). A PDF card is not a picture of a page: it
+  carries a toolbar under the page and a caption under that, out of the same
+  box. At the 120px landscape floor the viewer ended up shorter than its own
+  toolbar needs and dropped it entirely, leaving a page the user could neither
+  read nor turn. Both kinds of content are worth what fits in them, so both get
+  the same rule.
+
+**A focused card is the whole view and is sized as one.** It is a direct child
+of `.desktop-view`, not of a grid, so none of the rules above reach it and its
+height comes from its content. An image is fine with that — it has an intrinsic
+size. A PDF viewer is the opposite: it measures the box it is given and renders
+the page to fit, so a box with no height of its own makes it draw a stamp. A
+focused PDF therefore gets a definite `78vh`. The selector needs both halves
+(`.desktop-view > … .focused`): the view the user came from is still mounted,
+and the same card is still in its grid there.
 - Defaults when nothing has been measured: portrait `3 / 4`
   (`min-height: 180px`, `max-height: 400px`), landscape `16 / 9`
   (`min-height: 120px`), audio `min-height: 82px`, unclassified `120px`.

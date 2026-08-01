@@ -3,6 +3,7 @@
     editMode,
     worldStore,
     focusEntity,
+    focusedEntityStore,
     getEntityDisplayName,
   } from "../stores/world";
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -34,6 +35,11 @@
 
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
   let isRoot = $derived(parentId === undefined || parentId === null);
+
+  /// True when this entity is the one the user navigated into, which makes this
+  /// card the whole view rather than one item in a grid. Content that sizes
+  /// itself from the box it is given needs to know the difference.
+  let isFocused = $derived($focusedEntityStore === entityId);
 
   /// Determine the display name for this entity.
   let displayName = $derived(targetPath ?? `Entity #${entityId}`);
@@ -217,6 +223,7 @@
   class:audio-file={isAudio}
   class:text-file={isText}
   class:pdf-file={isPdf}
+  class:focused={isFocused}
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
   class:editable={$editMode}
@@ -434,33 +441,46 @@
     min-height: 120px;
   }
 
-  /* Text is the one kind of content whose usefulness is a function of how many
-     lines fit. A 16/9 sliver of a source file shows three lines and a
-     scrollbar, so text keeps a taller floor than the portrait default and is
-     allowed to run further before it stops growing. */
-  :global(.grid-container > .render-file.text-file) {
+  /* Text and PDFs are the kinds of content whose usefulness is a function of
+     how much of them fits. A 16/9 sliver of a source file shows three lines and
+     a scrollbar; a PDF has it worse, because it spends part of the same box on
+     a toolbar and a caption, and a landscape document at the 120px landscape
+     floor left the viewer shorter than its own toolbar needs — so the toolbar
+     was dropped and what remained was a page the user could neither read nor
+     turn. Both keep the same taller floor than the portrait default, and both
+     are allowed to run further before they stop growing.
+
+     The ratio is still the document's own where it is known: `--card-aspect` is
+     set inline from a PDF's first page and takes over as soon as the card is
+     wide enough to ask for more height than the floor. Declared after the
+     orientation rules on purpose — same specificity, so the later one wins. */
+  :global(.grid-container > .render-file.text-file),
+  :global(.grid-container > .render-file.pdf-file) {
     aspect-ratio: var(--card-aspect, 4 / 5);
     min-height: 240px;
     max-height: 520px;
   }
 
-  /* A PDF card is not just a picture of a page: it carries a toolbar of its own
-     under the page and a caption under that, and both come out of the same box.
-     At the ordinary card floors what was left for the page was a stamp — and a
-     landscape document, whose 120px floor left the viewer under the height its
-     toolbar needs, lost the toolbar altogether and became a page the user could
-     neither read nor turn.
+  /* The entity the user clicked into is the only thing on screen, so it gets
+     the screen.
 
-     So a PDF keeps its own floor, above every orientation default, for the same
-     reason text does: its usefulness is a function of how much of it fits. The
-     ratio is still the document's own — `--card-aspect` is set from the first
-     page — and only takes over once the card is wide enough for it to ask for
-     more height than the floor. Declared after the orientation rules on
-     purpose: same specificity, so the later one wins. */
-  :global(.grid-container > .render-file.pdf-file) {
-    aspect-ratio: var(--card-aspect, 3 / 4);
+     It needs saying for a PDF in a way it does not for an image. A focused card
+     is a direct child of the view, not of a grid, so none of the sizing rules
+     above apply to it and its height comes from its content. An image is happy
+     with that — it has an intrinsic size. A PDF viewer does the opposite: it
+     measures the box it is given and renders its page to fit, so a box with no
+     height of its own makes it draw a stamp. A definite height here is what
+     makes "open the PDF" mean the page fills the window.
+
+     `.desktop-view >` and not just `.focused`: the view the user came from is
+     still mounted behind this one, and the same card is still sitting in its
+     grid. Without the structural half of this selector that copy would be
+     85vh tall too, waiting to be seen on the way back. */
+  :global(.desktop-view > .render-file.pdf-file.focused) {
+    aspect-ratio: auto;
+    height: 78vh;
     min-height: 320px;
-    max-height: 640px;
+    max-height: none;
   }
 
   /* Tall enough for the player *and* the caption below it: sizing this to the
