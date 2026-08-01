@@ -213,6 +213,12 @@
     if (!element) return;
 
     return trackSize(element, (width, height) => {
+      // Zero is not a size here either. Navigating away hides the whole view
+      // with `display: none`, which reports 0×0 — and acting on that meant
+      // every PDF the user left behind re-rendered its page at scale 1.0 the
+      // moment it stopped being visible, which is the largest and most
+      // expensive paint the viewer can make and the least useful.
+      if (width <= 0 || height <= 0) return;
       if (width === measured.width && height === measured.height) return;
       measured = { width, height };
       box = { width, height };

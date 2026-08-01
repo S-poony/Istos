@@ -341,15 +341,21 @@ and from an orientation default otherwise.
   carries a toolbar under the page and a caption under that, out of the same
   box. At the 120px landscape floor the viewer ended up shorter than its own
   toolbar needs and dropped it entirely, leaving a page the user could neither
-  read nor turn. Both kinds of content are worth what fits in them, so both get
-  the same rule.
+  read nor turn.
 
-**A focused card is the whole view and is sized as one.** It is a direct child
-of `.desktop-view`, not of a grid, so none of the rules above reach it and its
-height comes from its content. An image is fine with that — it has an intrinsic
-size. A PDF viewer is the opposite: it measures the box it is given and renders
-the page to fit, so a box with no height of its own makes it draw a stamp. A
-focused PDF therefore gets a definite `78vh`. The selector needs both halves
+**A PDF card must have a definite height in every context, because the viewer
+inside it has no intrinsic size.** It measures its box and renders the page to
+fit, so a card sized by its content is a feedback loop — the card is as tall as
+the canvas, the canvas is drawn to fit the card, and each pass rounds down. A
+PDF drawn at the top level of a trove shrank a little more every time it was
+looked at. This is why the PDF rule is a bare `.render-file.pdf-file` and not a
+`.grid-container >` selector: a card is a child of a grid *or* of the view, and
+the ones in the view had no height rule at all. Every other kind of content can
+be sized by its container; this one cannot.
+
+**A focused card is the whole view and is sized as one.** A focused PDF gets a
+definite `78vh`, so opening it means the page fills the window rather than a
+card-sized box of it. The selector needs both halves
 (`.desktop-view > … .focused`): the view the user came from is still mounted,
 and the same card is still in its grid there.
 - Defaults when nothing has been measured: portrait `3 / 4`

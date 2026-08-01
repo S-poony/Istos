@@ -219,13 +219,24 @@ scroll event it provokes cannot record a clamped 0 over the value being put
 back. Under JSDOM `scrollTop` is permanently 0, so a test has to redefine the
 property on the element to have anything to assert about.
 
-**Grid sizing rules do not reach a focused card.** Everything sized by
-`:global(.grid-container > .render-file…)` stops applying the moment the user
-navigates into that entity, because the card is then a direct child of
-`.desktop-view`. Content with an intrinsic size does not notice; a PDF viewer,
-which measures its box and renders to fit, collapses to a stamp. Fixing the
-in-grid floor and calling it done means testing the one case that was still
-broken and finding it unchanged.
+**Grid sizing rules do not reach a card that is not in a grid.** Everything
+sized by `:global(.grid-container > .render-file…)` stops applying to an entity
+the user has navigated into, and never applied to a top-level one, because those
+are direct children of `.desktop-view`. Content with an intrinsic size does not
+notice. A PDF viewer does: it measures its box and renders to fit.
+
+**Content that sizes itself from its box cannot be sized by its content.** With
+no height rule, the PDF card was as tall as its canvas while its canvas was
+drawn to fit the card — a fixed point that only ever rounds down, so the card
+shrank a little on every pass. It looks like a lazy-loading bug and it is a
+layout loop. The fix is a definite height (an `aspect-ratio` counts) in *every*
+context the card can appear in, not a floor: a floor only decides where the
+shrinking stops.
+
+**A hidden view measures 0×0, and 0 is still not a size.** The PDF's scroll
+viewport had no zero guard, so navigating away set its box to 0×0, which made
+`fitScale` fall back to 1 and repaint the page at full size — the most expensive
+render the viewer can do, performed exactly when nobody can see it.
 
 **A `MutexGuard` from `app.state()` must be a named local.** Left as the tail
 temporary of a function's last block, it is dropped *after* the `State` it

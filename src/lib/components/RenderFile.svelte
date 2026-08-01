@@ -441,41 +441,47 @@
     min-height: 120px;
   }
 
-  /* Text and PDFs are the kinds of content whose usefulness is a function of
-     how much of them fits. A 16/9 sliver of a source file shows three lines and
-     a scrollbar; a PDF has it worse, because it spends part of the same box on
-     a toolbar and a caption, and a landscape document at the 120px landscape
-     floor left the viewer shorter than its own toolbar needs — so the toolbar
-     was dropped and what remained was a page the user could neither read nor
-     turn. Both keep the same taller floor than the portrait default, and both
-     are allowed to run further before they stop growing.
+  /* Text is the one kind of content whose usefulness is a function of how many
+     lines fit. A 16/9 sliver of a source file shows three lines and a
+     scrollbar, so text keeps a taller floor than the portrait default and is
+     allowed to run further before it stops growing. */
+  :global(.grid-container > .render-file.text-file) {
+    aspect-ratio: var(--card-aspect, 4 / 5);
+    min-height: 240px;
+    max-height: 520px;
+  }
 
-     The ratio is still the document's own where it is known: `--card-aspect` is
-     set inline from a PDF's first page and takes over as soon as the card is
-     wide enough to ask for more height than the floor. Declared after the
-     orientation rules on purpose — same specificity, so the later one wins. */
-  :global(.grid-container > .render-file.text-file),
-  :global(.grid-container > .render-file.pdf-file) {
+  /* A PDF gets the same floor as text, for a stronger reason, and gets it
+     **wherever the card is drawn** — not only inside a grid.
+
+     A PDF viewer has no intrinsic size. It measures the box it is given and
+     renders its page to fit it, so a card with no height of its own is a loop:
+     the card is as tall as the canvas, the canvas is drawn to fit the card, and
+     every pass rounds the answer down. That is what made a PDF at the top level
+     of a trove shrink a little more each time it was looked at. An image never
+     does this, which is why every other card here can be sized by its container
+     and this one cannot.
+
+     Hence a bare `.render-file.pdf-file` rather than a `.grid-container >`
+     selector: a card is a child of a grid *or* of the view, and the ones drawn
+     in the view had no height rule at all. Placed after the orientation rules
+     because it shares their specificity and has to beat them; the `.dense` rule
+     below beats it back for the same reason, which is correct — a dense row has
+     no body to size. */
+  .render-file.pdf-file {
     aspect-ratio: var(--card-aspect, 4 / 5);
     min-height: 240px;
     max-height: 520px;
   }
 
   /* The entity the user clicked into is the only thing on screen, so it gets
-     the screen.
-
-     It needs saying for a PDF in a way it does not for an image. A focused card
-     is a direct child of the view, not of a grid, so none of the sizing rules
-     above apply to it and its height comes from its content. An image is happy
-     with that — it has an intrinsic size. A PDF viewer does the opposite: it
-     measures the box it is given and renders its page to fit, so a box with no
-     height of its own makes it draw a stamp. A definite height here is what
-     makes "open the PDF" mean the page fills the window.
+     the screen: a definite height, so "open the PDF" means the page fills the
+     window instead of a card-sized box of it.
 
      `.desktop-view >` and not just `.focused`: the view the user came from is
      still mounted behind this one, and the same card is still sitting in its
-     grid. Without the structural half of this selector that copy would be
-     85vh tall too, waiting to be seen on the way back. */
+     grid there. Without the structural half of this selector that copy would be
+     78vh tall too, waiting to be seen on the way back. */
   :global(.desktop-view > .render-file.pdf-file.focused) {
     aspect-ratio: auto;
     height: 78vh;
