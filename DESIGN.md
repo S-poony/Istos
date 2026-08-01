@@ -557,3 +557,32 @@ test states a size and asserts what the component does with it.
 
 Environment-level traps — `vi.mock` hoisting, PDF.js needing `DOMMatrix`, JSDOM
 lacking `DragEvent` — are recorded in [docs/LEARNINGS.md](docs/LEARNINGS.md).
+
+## 8. Releases and updates
+
+Releases are built by `.github/workflows/release.yml`, triggered by pushing a
+tag matching `v*`. It builds macOS (both architectures), Linux, and Windows
+bundles with `tauri-apps/tauri-action`, signs them, and opens a **draft**
+GitHub release with the installers plus a `latest.json` manifest.
+
+A draft release must be published by hand before it does anything — GitHub's
+`releases/latest` endpoint, which the updater polls, only ever resolves to the
+most recent *published* release. This is deliberate: it is the point where a
+human confirms the build before it reaches every running install.
+
+The app checks for updates once, at startup (`src/lib/update.ts`, called from
+`App.svelte`'s `onMount`), and installs silently in the background if one is
+found — see `checkForUpdates`. A failed check is logged, not surfaced; a
+found, installed, or failed *install* gets a toast, following the feedback
+rule in [§4](#4-feedback-and-long-running-work).
+
+Update artifacts are signed with a minisign keypair generated once via
+`tauri signer generate`. The public key lives in `tauri.conf.json` under
+`plugins.updater.pubkey`; the private key and its password are GitHub Actions
+secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`),
+never committed. Losing either means future releases can no longer be
+verified by installs signed with the old key.
+
+Version numbers in `package.json`, `src-tauri/Cargo.toml`, and
+`src-tauri/tauri.conf.json` are not read from one another — bump all three
+together, then tag to match.

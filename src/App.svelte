@@ -5,6 +5,7 @@
   import { pushToast } from "./lib/stores/toasts";
   import { openTroveFlow, troveOpening } from "./lib/trove";
   import { startWatchingTrove } from "./lib/watch";
+  import { checkForUpdates } from "./lib/update";
   import ContextMenu from "./lib/components/ContextMenu.svelte";
   import Desktop from "./lib/components/Desktop.svelte";
   import ModeToggle from "./lib/components/ModeToggle.svelte";
@@ -68,6 +69,9 @@
     } catch (e) {
       console.error("Failed to watch the trove for changes:", e);
     }
+
+    // Fire-and-forget: an update check must never delay the trove opening.
+    checkForUpdates();
   });
 
   onDestroy(() => stopWatching?.());

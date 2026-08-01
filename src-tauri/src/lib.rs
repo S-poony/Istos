@@ -12,6 +12,17 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // The updater and process plugins only build for desktop targets;
+            // this app has no mobile entry point, but the cfg guard is the
+            // documented way to register them so a future mobile build does
+            // not fail here.
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
+
             let db_path = app
                 .path()
                 .app_data_dir()
