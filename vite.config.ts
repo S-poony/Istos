@@ -19,7 +19,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    pool: 'vmForks',
+    // 'vmForks' hangs indefinitely on this suite (no output after `RUN v4.x`);
+    // 'forks' runs it in a few seconds. See docs/LEARNINGS.md.
+    pool: 'forks',
     environment: 'jsdom',
     setupFiles: ['./src/__tests__/setup.ts'],
   },

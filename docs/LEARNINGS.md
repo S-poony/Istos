@@ -12,6 +12,21 @@ twice. Rules that constrain how the app must behave belong in
 recurses and hangs the machine. Keep `"dev": "vite"` and use a separate
 `"start": "tauri dev"`.
 
+**Never `npm install` into this `node_modules` from a non-Windows machine.**
+Installing a Linux-native binary (`@rollup/rollup-linux-x64-gnu`) to make the
+suite run in a Linux sandbox made npm re-evaluate every optional platform
+package: it created a directory for each one and left them all *empty*,
+including `@rollup/rollup-win32-x64-msvc`. `npm start` then died with
+`Cannot find module @rollup/rollup-win32-x64-msvc` — a message that blames npm's
+optional-dependency bug and sends you off to delete `node_modules`, when the
+real cause was a cross-platform install. `--no-save --no-package-lock` does not
+protect against this; it only spares `package.json` and the lockfile.
+
+To run the suite off-Windows, copy the project and its `node_modules`
+elsewhere and install there. To recover, `npm i` on Windows, or extract the
+package's tarball (`npm pack @rollup/rollup-win32-x64-msvc@<version>`) straight
+into the empty directory.
+
 **Verify npm scripts before running them.** `npm run check` does not exist.
 Read `package.json` instead of guessing. Frontend validation is
 `npm test -- --run`.
@@ -33,10 +48,12 @@ non-object` and `mount(...) is not available on the server` mean Vitest resolved
 the SSR entry point. Match Vite 6 with Vitest 3+ and set
 `resolve.conditions: ['browser']` in `vite.config.ts`.
 
-**The `vmForks` pool can hang.** With `pool: 'vmForks'` the run can sit at
-`RUN v4.x` forever without producing output. `--pool=forks` runs the same suite
-in a few seconds. If a test run seems to hang, try the pool before suspecting
-your test.
+**The `vmForks` pool hangs. `vite.config.ts` now uses `forks`.** With
+`pool: 'vmForks'` the run sat at `RUN v4.x` forever without producing output;
+`forks` runs the same suite in a few seconds. This was left as a known trap in
+the config for a while, which cost everyone who then had to rediscover it —
+recording a workaround is not the same as applying it. If a test run seems to
+hang, check the pool before suspecting your test.
 
 **`vi.mock` factories are hoisted.** Referencing a file-scope variable inside a
 `vi.mock()` factory throws `Cannot access '...' before initialization`. Declare
@@ -105,6 +122,24 @@ on `.tree-node` and call `e.stopPropagation()`.
 **Click handlers on nested wrappers need `stopPropagation`.** Without it a click
 on a nested entity bubbles to its ancestor, whose handler runs last and wins, so
 nested entities cannot be entered.
+
+**A clickable card swallows its own controls' clicks.** Once the card had an
+`onclick` that focuses the entity, clicking the PDF's next-page button both
+paged the document *and* navigated into the card. Guard with
+`isInteractiveTarget` (`src/lib/interaction.ts`), and still call
+`stopPropagation()` on the ignored click — skipping it just moves the same bug
+onto the ancestor card.
+
+**Measuring for layout: zero is not a size.** A `ResizeObserver` and
+`clientWidth` both report `0` before layout. Treating that as a real measurement
+made the PDF toolbar decide it had no room and hide itself on every mount — and
+under JSDOM, which never lays out, it hid itself permanently and took the tests
+with it. Ignore non-positive measurements and keep the pre-measurement default.
+
+**Nested boxes stack their borders.** Giving every nesting level a padded,
+bordered card produced a ladder of horizontal lines at the bottom of a deep
+trove, one per level. Reserve the full box for the root and show nesting with a
+`border-left` rail.
 
 **Centring an overflowing flex item hides part of it.** With
 `justify-content: center`, content wider than the scroll container overflows past

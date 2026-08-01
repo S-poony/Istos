@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import '@testing-library/jest-dom';
-import { tick } from 'svelte';
+import { tick, type ComponentProps } from 'svelte';
 import { worldStore } from '../lib/stores/world';
 import { World } from '../lib/ecs/World';
 import { Component } from '../lib/ecs/Component';
@@ -19,9 +19,38 @@ function loadFixture(data: import('../lib/types').WorldData) {
     worldStore.loadFromData(data);
 }
 
+function isContainer(id: number): boolean {
+    return worldStore.getWorld().getComponent(id, 'grid') !== undefined;
+}
+
+/// Every prop `TreeNode` requires, with the callbacks stubbed. Spelling the
+/// full set out at each call site meant a new prop had to be added in eight
+/// places, and the four that were missed only surfaced as type errors — the
+/// tests kept passing while handing the component `undefined` where it
+/// expected a function.
+function nodeProps(id: number, overrides: Partial<TreeNodeProps> = {}): TreeNodeProps {
+    return {
+        id,
+        draggedId: null,
+        dropTarget: null,
+        isContainer,
+        onDragStart: vi.fn(),
+        onDragOver: vi.fn(),
+        onDragLeave: vi.fn(),
+        onDrop: vi.fn(),
+        onDragEnd: vi.fn(),
+        depth: 0,
+        isAncestor: vi.fn(),
+        setDropTarget: vi.fn(),
+        ...overrides,
+    };
+}
+
+type TreeNodeProps = ComponentProps<typeof TreeNode>;
+
 describe('TreeNode - Expand/Collapse', () => {
     beforeEach(() => {
-        // Load a folder with children into the store
+        // Load a container with children into the store
         loadFixture({
             entities: [
                 {
@@ -73,25 +102,8 @@ describe('TreeNode - Expand/Collapse', () => {
         });
     });
 
-    function isFolder(id: number): boolean {
-        return worldStore.getWorld().getComponent(id, 'grid') !== undefined;
-    }
-
     it('should show toggle arrow ▾ for a folder with children (expanded by default)', () => {
-        const { container } = render(TreeNode, {
-            id: 1,
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-            isAncestor: vi.fn(),
-            setDropTarget: vi.fn(),
-        });
+        const { container } = render(TreeNode, nodeProps(1));
 
         // The toggle arrow should be present (▾ since expanded by default)
         const toggle = container.querySelector('.toggle');
@@ -100,20 +112,7 @@ describe('TreeNode - Expand/Collapse', () => {
     });
 
     it('should show children when expanded by default', () => {
-        const { container } = render(TreeNode, {
-            id: 1,
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-            isAncestor: vi.fn(),
-            setDropTarget: vi.fn(),
-        });
+        const { container } = render(TreeNode, nodeProps(1));
 
         // Children wrapper should be in the DOM initially
         const childrenContainer = container.querySelector('.children');
@@ -123,20 +122,7 @@ describe('TreeNode - Expand/Collapse', () => {
     });
 
     it('should collapse and hide children when toggle is clicked', async () => {
-        const { container } = render(TreeNode, {
-            id: 1,
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-            isAncestor: vi.fn(),
-            setDropTarget: vi.fn(),
-        });
+        const { container } = render(TreeNode, nodeProps(1));
 
         const toggle = container.querySelector('.toggle') as HTMLElement;
         expect(toggle.textContent?.trim()).toBe('▾');
@@ -154,20 +140,7 @@ describe('TreeNode - Expand/Collapse', () => {
     });
 
     it('should render attached component badges for an entity', () => {
-        render(TreeNode, {
-            id: 1,
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-            isAncestor: vi.fn(),
-            setDropTarget: vi.fn(),
-        });
+        render(TreeNode, nodeProps(1));
 
         const badges = screen.getAllByTestId('component-badge');
         const badgeTexts = badges.map((b) => b.textContent?.trim());
@@ -176,18 +149,7 @@ describe('TreeNode - Expand/Collapse', () => {
     });
 
     it('should NOT show toggle arrow for a file entity without children', () => {
-        const { container } = render(TreeNode, {
-            id: 2, // a file, not a folder
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-        });
+        const { container } = render(TreeNode, nodeProps(2));
 
         // There should be a toggle-spacer instead of a toggle arrow
         const toggle = container.querySelector('.toggle');
@@ -198,18 +160,7 @@ describe('TreeNode - Expand/Collapse', () => {
     });
 
     it('should show correct display name from renderFile path', () => {
-        render(TreeNode, {
-            id: 2, // path: /home/user/Documents/report.txt
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-        });
+        render(TreeNode, nodeProps(2));
 
         expect(screen.getByText('report.txt')).toBeInTheDocument();
     });
@@ -226,18 +177,7 @@ describe('TreeNode - Expand/Collapse', () => {
             }],
         });
 
-        render(TreeNode, {
-            id: 4,
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-        });
+        render(TreeNode, nodeProps(4));
 
         expect(screen.getByText('document.pdf')).toBeInTheDocument();
     });
@@ -255,18 +195,7 @@ describe('TreeNode - Expand/Collapse', () => {
             ],
         });
 
-        render(TreeNode, {
-            id: 99,
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth: 0,
-        });
+        render(TreeNode, nodeProps(99));
 
         expect(screen.getByText('Entity #99')).toBeInTheDocument();
     });
@@ -445,20 +374,25 @@ describe('World ECS - Reorder and Reparent Operations', () => {
 /**
  * Helper to create a minimal DataTransfer mock for jsdom.
  * jsdom doesn't implement DataTransfer, so we build one.
+ *
+ * Only the members the drag handlers actually touch are real; `files` and
+ * `items` are empty stand-ins for types jsdom has no constructor for, so the
+ * whole thing is asserted into `DataTransfer` once, here, rather than being
+ * cast at every call site.
  */
 function createMockDataTransfer(): DataTransfer {
-    const data = {};
+    const data: Record<string, string> = {};
     return {
         dropEffect: 'none',
         effectAllowed: 'none',
-        files: [],
-        items: [],
+        files: [] as unknown as FileList,
+        items: [] as unknown as DataTransferItemList,
         types: [],
-        getData(format) { return data[format] || ''; },
-        setData(format, value) { data[format] = value; },
-        clearData(format) { if (format) delete data[format]; else Object.keys(data).forEach(k => delete data[k]); },
+        getData(format: string) { return data[format] || ''; },
+        setData(format: string, value: string) { data[format] = value; },
+        clearData(format?: string) { if (format) delete data[format]; else Object.keys(data).forEach(k => delete data[k]); },
         setDragImage() { },
-    };
+    } as DataTransfer;
 }
 
 describe('TreeView - Drag and Drop Integration', () => {
@@ -532,6 +466,7 @@ describe('TreeView - Drag and Drop Integration', () => {
 
         const standaloneNode = screen.getByText('standalone.md').closest('.tree-node');
         expect(standaloneNode).toBeInTheDocument();
+        if (!standaloneNode) throw new Error('standalone.md has no .tree-node ancestor');
 
         const dt = createMockDataTransfer();
 
@@ -725,27 +660,6 @@ describe('TreeView - Drag and Drop Integration', () => {
 });
 
 describe('TreeNode - Deep Nesting Collapse', () => {
-    function isFolder(id: number): boolean {
-        return worldStore.getWorld().getComponent(id, 'grid') !== undefined;
-    }
-
-    function makeProps(id: number, depth: number) {
-        return {
-            id,
-            draggedId: null,
-            dropTarget: null,
-            isFolder,
-            onDragStart: vi.fn(),
-            onDragOver: vi.fn(),
-            onDragLeave: vi.fn(),
-            onDrop: vi.fn(),
-            onDragEnd: vi.fn(),
-            depth,
-            isAncestor: vi.fn(),
-            setDropTarget: vi.fn(),
-        };
-    }
-
     beforeEach(() => {
         // Chain of nested folders: 1 > 2 > 3 > 4 > 5 > file
         loadFixture({
@@ -761,7 +675,7 @@ describe('TreeNode - Deep Nesting Collapse', () => {
     });
 
     it('should still render children inline at any depth (no collapse in tree view)', () => {
-        const { container } = render(TreeNode, makeProps(5, 4));
+        const { container } = render(TreeNode, nodeProps(5, { depth: 4 }));
 
         // No collapsed badge
         expect(container.querySelector('[data-testid=deep-badge]')).toBeNull();
@@ -772,10 +686,11 @@ describe('TreeNode - Deep Nesting Collapse', () => {
     });
 
     it('should recurse normally below MAX_DEPTH', () => {
-        const { container } = render(TreeNode, makeProps(4, 3));
+        const { container } = render(TreeNode, nodeProps(4, { depth: 3 }));
 
         const rootNode = container.querySelector('.tree-node');
-        expect(rootNode.querySelector('[data-testid=deep-badge]')).toBeNull();
+        expect(rootNode).toBeInTheDocument();
+        expect(rootNode?.querySelector('[data-testid=deep-badge]')).toBeNull();
         expect(container.querySelector('.children')).toBeInTheDocument();
     });
 

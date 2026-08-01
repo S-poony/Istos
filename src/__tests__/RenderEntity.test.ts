@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/svelte';
 import '@testing-library/jest-dom';
 import RenderEntity from '../lib/components/RenderEntity.svelte';
 import { worldStore } from '../lib/stores/world';
+import { MAX_DEPTH } from '../lib/constants';
 
 // Mock Tauri apps API so we don't try to call native code during unit tests
 vi.mock('@tauri-apps/api/core', () => ({
@@ -191,28 +192,63 @@ describe('RenderEntity Component', () => {
         unmount3();
     });
 
-    it('should render RenderDeepEntity when depth >= 4', () => {
+    it('stops expanding a container past MAX_DEPTH and draws its own renderFile card instead', () => {
         worldStore.loadFromData({
             entities: [
                 {
                     id: 50,
                     components: [
                         { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
-                        { componentType: 'renderFile', settings: { targetPath: 'deep_folder', scale: 1, position: { x: 0, y: 0 } } },
+                        { componentType: 'renderFile', settings: { targetPath: '/trove/deep_folder', scale: 1, position: { x: 0, y: 0 } } },
+                    ],
+                },
+                {
+                    id: 51,
+                    parentId: 50,
+                    components: [
+                        { componentType: 'renderFile', settings: { targetPath: '/trove/deep_folder/inner.png', scale: 1, position: { x: 0, y: 0 } } },
                     ],
                 },
             ],
         });
 
-        render(RenderEntity, { entityId: 50, depth: 4 });
+        const { container } = render(RenderEntity, { entityId: 50, depth: MAX_DEPTH });
 
-        const card = screen.getByTestId('deep-entity-card');
+        // It is an ordinary card, not a bespoke summary widget, and it does not
+        // recurse into a grid.
+        const card = container.querySelector('.render-file');
         expect(card).toBeInTheDocument();
+        expect(card).toHaveClass('collapsed');
+        expect(container.querySelector('.grid-container')).not.toBeInTheDocument();
+
+        // Its name is on it, and it says how much it is holding back.
         expect(screen.getByText('deep_folder')).toBeInTheDocument();
+        expect(screen.getByTitle('1 inside')).toBeInTheDocument();
     });
 
-    it('should focus entity when View Contents button is clicked on deep entity card', async () => {
-        const { focusedEntityStore } = await import('../lib/stores/world');
+    it('still expands the same container one level above MAX_DEPTH', () => {
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 70,
+                    components: [
+                        { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
+                        { componentType: 'renderFile', settings: { targetPath: '/trove/deep_folder', scale: 1, position: { x: 0, y: 0 } } },
+                    ],
+                },
+            ],
+        });
+
+        const { container } = render(RenderEntity, { entityId: 70, depth: MAX_DEPTH - 1 });
+
+        expect(container.querySelector('.grid-container')).toBeInTheDocument();
+        expect(container.querySelector('.render-file')).not.toBeInTheDocument();
+    });
+
+    it('focuses a collapsed entity when its card is clicked', async () => {
+        const { focusedEntityStore, focusEntity } = await import('../lib/stores/world');
+        focusEntity(null);
+
         worldStore.loadFromData({
             entities: [
                 {
@@ -225,9 +261,9 @@ describe('RenderEntity Component', () => {
             ],
         });
 
-        render(RenderEntity, { entityId: 60, depth: 4 });
+        const { container } = render(RenderEntity, { entityId: 60, depth: MAX_DEPTH });
 
-        const card = screen.getByTestId('deep-entity-card');
+        const card = container.querySelector('.render-file') as HTMLElement;
         const { fireEvent } = await import('@testing-library/svelte');
         await fireEvent.click(card);
 
@@ -237,6 +273,32 @@ describe('RenderEntity Component', () => {
         })();
 
         expect(focusedId).toBe(60);
+    });
+
+    it('names a container after itself, never after one of its children', () => {
+        worldStore.loadFromData({
+            entities: [
+                {
+                    id: 80,
+                    components: [
+                        { componentType: 'grid', settings: { columns: 2, gap: 8, draggable: false } },
+                    ],
+                },
+                {
+                    id: 81,
+                    parentId: 80,
+                    components: [
+                        { componentType: 'renderFile', settings: { targetPath: '/trove/holiday.png', scale: 1, position: { x: 0, y: 0 } } },
+                    ],
+                },
+            ],
+        });
+
+        const { container } = render(RenderEntity, { entityId: 80 });
+
+        const name = container.querySelector('.entity-name');
+        expect(name).toHaveTextContent('Entity #80');
+        expect(name).not.toHaveTextContent('holiday.png');
     });
 });
 

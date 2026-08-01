@@ -1,6 +1,12 @@
 <script lang="ts">
-  import { editMode, worldStore, focusEntity } from "../stores/world";
+  import {
+    editMode,
+    worldStore,
+    focusEntity,
+    getEntityDisplayName,
+  } from "../stores/world";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { isInteractiveTarget, isActivationKey } from "../interaction";
   import RenderMarkdown from "./RenderMarkdown.svelte";
   import RenderPdf from "./RenderPdf.svelte";
   import type { IntrinsicSize } from "../types";
@@ -10,15 +16,34 @@
     targetPath?: string;
     scale: number;
     position: { x: number; y: number };
+    /// True when this card stands in for a container the desktop stopped
+    /// nesting inline. It is drawn like any other card — the only difference is
+    /// that it is the entity's whole visible presence, so its child count is
+    /// worth stating.
+    collapsed?: boolean;
   }
 
-  let { entityId, targetPath, scale, position }: Props = $props();
+  let { entityId, targetPath, scale, position, collapsed = false }: Props = $props();
 
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
   let isRoot = $derived(parentId === undefined || parentId === null);
 
   /// Determine the display name for this entity.
   let displayName = $derived(targetPath ?? `Entity #${entityId}`);
+
+  /// The caption shows the entity's own name — the last path segment, not the
+  /// path, which would be unreadable in a grid cell.
+  let captionName = $derived(getEntityDisplayName($worldStore, entityId));
+
+  let childCount = $derived($worldStore.getChildren(entityId).length);
+
+  /// Extension of the file this card stands for, uppercased, or "" when there
+  /// is none. Deliberately not an icon: any entity can contain any other, so
+  /// there is nothing a folder icon would truthfully mean here.
+  let fileKind = $derived.by(() => {
+    const match = /\.([a-z0-9]{1,8})$/i.exec(captionName);
+    return match ? match[1].toUpperCase() : "";
+  });
 
   /// Determine if this looks like an image path.
   let isImage = $derived(
@@ -143,6 +168,23 @@
     console.error(`Failed to load media for ${displayName}. Path: ${targetPath}, Src: ${mediaSrc}. Check tauri.conf.json asset scopes or file validity.`);
     hasError = true;
   }
+
+  /// The card is clickable, but the things inside it are too. A click on a
+  /// control belongs to that control alone; it must not also navigate. The card
+  /// stops propagation either way, so an unhandled click never falls through to
+  /// an ancestor card, which would focus the wrong entity.
+  function handleActivate(event: MouseEvent) {
+    event.stopPropagation();
+    if (isInteractiveTarget(event)) return;
+    focusEntity(entityId);
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (!isActivationKey(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    focusEntity(entityId);
+  }
 </script>
 
 <div
@@ -151,66 +193,82 @@
   class:portrait={computedOrientation === 'portrait'}
   class:landscape={computedOrientation === 'landscape'}
   class:editable={$editMode}
+  class:collapsed
   style={aspectStyle}
-  onclick={(e) => { e.stopPropagation(); focusEntity(entityId); }}
+  role="button"
+  tabindex="0"
+  aria-label={captionName}
+  data-testid="entity-card"
+  onclick={handleActivate}
+  onkeydown={handleKeydown}
 >
-  {#if hasError}
-    <div class="file-placeholder error">
-      <span class="file-icon">⚠️</span>
-      <span class="file-name error-text">Error loading media</span>
-      <span class="file-name" style="font-size: 10px;">{displayName}</span>
-    </div>
-  {:else if isImage}
-    <img
-      bind:this={imgElement}
-      src={mediaSrc}
-      alt={displayName}
-      draggable={false}
-      onerror={handleError}
-      onload={(e) => handleImageLoad(e.currentTarget as HTMLImageElement)}
-    />
-  {:else if isAudio}
-    <audio controls src={mediaSrc} onerror={handleError}>
-      Your browser does not support the audio element.
-    </audio>
-  {:else if isVideo}
-    <video
-      bind:this={videoElement}
-      controls
-      src={mediaSrc}
-      onerror={handleError}
-      onloadedmetadata={(e) => handleVideoMetadata(e.currentTarget as HTMLVideoElement)}
-    >
-      <track kind="captions">
-      Your browser does not support the video element.
-    </video>
-  {:else if isPdf}
-    <RenderPdf
-      {mediaSrc}
-      displayName={displayName}
-      onFirstPageSize={(size) => (intrinsicSize = size)}
-    />
-  {:else if isText}
-    {#if isMarkdown}
-      <RenderMarkdown source={textContent} />
+  <div class="file-body">
+    {#if hasError}
+      <div class="file-placeholder error">
+        <span class="file-glyph error-text">⚠</span>
+        <span class="file-kind error-text">Failed to load</span>
+      </div>
+    {:else if isImage}
+      <img
+        bind:this={imgElement}
+        src={mediaSrc}
+        alt={displayName}
+        draggable={false}
+        onerror={handleError}
+        onload={(e) => handleImageLoad(e.currentTarget as HTMLImageElement)}
+      />
+    {:else if isAudio}
+      <audio controls src={mediaSrc} onerror={handleError}>
+        Your browser does not support the audio element.
+      </audio>
+    {:else if isVideo}
+      <video
+        bind:this={videoElement}
+        controls
+        src={mediaSrc}
+        onerror={handleError}
+        onloadedmetadata={(e) => handleVideoMetadata(e.currentTarget as HTMLVideoElement)}
+      >
+        <track kind="captions">
+        Your browser does not support the video element.
+      </video>
+    {:else if isPdf}
+      <RenderPdf
+        {mediaSrc}
+        displayName={displayName}
+        onFirstPageSize={(size) => (intrinsicSize = size)}
+      />
+    {:else if isText}
+      {#if isMarkdown}
+        <RenderMarkdown source={textContent} />
+      {:else}
+        <div class="text-content" data-interactive>
+          <pre>{textContent}</pre>
+        </div>
+      {/if}
     {:else}
-      <div class="text-content">
-        <pre>{textContent}</pre>
+      <div class="file-placeholder">
+        <span class="file-glyph" aria-hidden="true"></span>
+        {#if fileKind}<span class="file-kind">{fileKind}</span>{/if}
       </div>
     {/if}
-  {:else}
-    <div class="file-placeholder">
-      <span class="file-icon">📄</span>
-      <span class="file-name">{displayName}</span>
-    </div>
-  {/if}
+  </div>
+
+  <!-- The name is always there and never competes with the content: one line,
+       secondary colour, truncated. It is how a card says what it is when the
+       content alone does not. -->
+  <div class="file-caption">
+    <span class="caption-name" title={captionName}>{captionName}</span>
+    {#if childCount > 0}
+      <span class="caption-count" title="{childCount} inside">{childCount}</span>
+    {/if}
+  </div>
 </div>
 
 <style>
   .render-file {
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
     position: relative;
     border-radius: 8px;
     overflow: hidden;
@@ -222,6 +280,73 @@
     height: 100%; /* Fill the grid cell height to match row siblings */
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    /* Lets the caption and any other chrome respond to the card's own width
+       rather than the window's. */
+    container-type: inline-size;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .render-file:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* A collapsed container is an ordinary card. It reads as "there is more
+     inside" through its caption count, not through a different shape. */
+  .render-file.collapsed {
+    border-style: dashed;
+  }
+
+  /* The content owns everything above the caption. min-height: 0 lets it
+     actually shrink so the caption is never pushed out of the card. */
+  .file-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .file-caption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-shrink: 0;
+    padding: 4px 8px;
+    background-color: rgba(0, 0, 0, 0.18);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    user-select: none;
+  }
+
+  .caption-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .caption-count {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    padding: 0 5px;
+    border-radius: 999px;
+    background-color: rgba(255, 255, 255, 0.07);
+    color: var(--text-secondary);
+  }
+
+  /* Below this width the caption would be an ellipsis and nothing else, which
+     tells the user less than the space it costs. */
+  @container (max-width: 84px) {
+    .file-caption {
+      display: none;
+    }
   }
 
   :global(.grid-container > .render-file) {
@@ -245,8 +370,10 @@
   }
 
 
+  /* Tall enough for the player *and* the caption below it: sizing this to the
+     player alone left the transport controls squeezed to nothing. */
   :global(.grid-container > .render-file.audio-file) {
-    min-height: 54px;
+    min-height: 82px;
   }
 
   .render-file.editable {
@@ -276,34 +403,49 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 16px;
+    gap: 8px;
+    padding: 12px;
     width: 100%;
     height: 100%;
     max-height: 100%;
     overflow: hidden;
   }
 
-  .file-icon {
-    font-size: 32px;
+  /* A neutral mark, not an icon. Entities are not typed by their container-ness,
+     so nothing here may imply "folder" or "file". */
+  .file-glyph {
     flex-shrink: 0;
-  }
-
-  .file-name {
-    font-size: 12px;
+    width: 26px;
+    height: 26px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
     color: var(--text-secondary);
-    text-align: center;
-    word-break: break-all;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    max-height: 4.5em; /* approximate height for 3 lines */
+    opacity: 0.75;
   }
 
-  .file-name.error-text {
+  .file-kind {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    opacity: 0.7;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .file-glyph.error-text,
+  .file-kind.error-text {
     color: var(--danger);
+    border-color: var(--danger);
+    opacity: 1;
   }
 
   .text-content {

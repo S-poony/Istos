@@ -42,8 +42,9 @@
     return $worldStore.getChildren(parentId);
   }
 
-  /// Check if an entity is a folder (has grid component).
-  function isFolder(id: EntityId): boolean {
+  /// Whether an entity can hold others — it has a `grid`. Not "is it a
+  /// folder": there are no folders, only entities that arrange children.
+  function isContainer(id: EntityId): boolean {
     return $worldStore.getComponent(id, "grid") !== undefined;
   }
 
@@ -78,7 +79,7 @@
     if (rect.height <= 0) return null;
 
     const ratio = (e.clientY - rect.top) / rect.height;
-    if (isFolder(id) && ratio > 0.2 && ratio < 0.8) {
+    if (isContainer(id) && ratio > 0.2 && ratio < 0.8) {
       return { type: "into", entityId: id, position: "after" };
     }
     return {
@@ -144,7 +145,7 @@
           : $worldStore.getOrderedChildren(targetParentId);
         const withoutSource = siblings.filter((id) => id !== sourceId);
         const targetIndex = withoutSource.indexOf(target.entityId);
-        if (targetIndex < 0) throw new Error("Drop target is no longer in the destination folder");
+        if (targetIndex < 0) throw new Error("Drop target is no longer in the destination entity");
         const insertionIndex = target.position === "before" ? targetIndex : targetIndex + 1;
         const newOrder = [
           ...withoutSource.slice(0, insertionIndex),
@@ -208,7 +209,7 @@
       {id}
       {draggedId}
       {dropTarget}
-      {isFolder}
+      {isContainer}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -223,7 +224,7 @@
   {#if rootIds.length === 0}
     <div class="empty-state">
       <p>No files in trove.</p>
-      <p class="hint">Open a trove folder to get started.</p>
+      <p class="hint">Open a trove to get started.</p>
     </div>
   {/if}
 </div>

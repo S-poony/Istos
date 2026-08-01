@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import '@testing-library/jest-dom';
+import { tick } from 'svelte';
 import RenderMarkdown from '../lib/components/RenderMarkdown.svelte';
 import RenderPdf from '../lib/components/RenderPdf.svelte';
 import RenderFile from '../lib/components/RenderFile.svelte';
-import { worldStore } from '../lib/stores/world';
+import { worldStore, focusedEntityStore, focusEntity } from '../lib/stores/world';
+import { resizeElement } from './setup';
 
 // Mock Tauri apps API
 vi.mock('@tauri-apps/api/core', () => ({
@@ -210,17 +212,75 @@ describe('RenderPdf Component', () => {
     expect(zoomInBtn).not.toBeDisabled();
   });
 
-  it('keeps zoom controls reachable rather than hiding them', async () => {
-    render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+  it('shows every control when the container has room for them', async () => {
+    const { container } = render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
     await waitFor(() => {
       expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
     });
+
+    resizeElement(container.querySelector('.pdf-viewer-container')!, 600, 800);
+    await tick();
 
     for (const title of ['Zoom In', 'Zoom Out', 'Reset Zoom', 'Previous Page', 'Next Page']) {
       expect(screen.getByTitle(title)).toBeInTheDocument();
     }
     // Fit mode is togglable, so only one of the two labels is present at a time.
     expect(screen.getByTitle(/^Fit (Width|Page)$/)).toBeInTheDocument();
+  });
+
+  it('drops controls it has no room for, least essential first', async () => {
+    const { container } = render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+    const viewer = container.querySelector('.pdf-viewer-container')!;
+
+    // Narrow: reset and fit-mode go, the rest stays.
+    resizeElement(viewer, 220, 400);
+    await tick();
+    expect(screen.queryByTitle('Reset Zoom')).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^Fit (Width|Page)$/)).not.toBeInTheDocument();
+    expect(screen.getByTitle('Zoom In')).toBeInTheDocument();
+    expect(screen.getByTitle('Next Page')).toBeInTheDocument();
+
+    // Narrower: the whole zoom section goes, page navigation survives longest.
+    resizeElement(viewer, 150, 400);
+    await tick();
+    expect(screen.queryByTitle('Zoom In')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Zoom Out')).not.toBeInTheDocument();
+    expect(screen.getByTitle('Next Page')).toBeInTheDocument();
+    expect(screen.getByTitle('Previous Page')).toBeInTheDocument();
+
+    // Too small for any of it: the toolbar leaves entirely.
+    resizeElement(viewer, 90, 400);
+    await tick();
+    expect(screen.queryByTestId('pdf-toolbar')).not.toBeInTheDocument();
+
+    // Short cells lose it too — a toolbar taller than the page it serves is
+    // not a toolbar worth having.
+    resizeElement(viewer, 600, 90);
+    await tick();
+    expect(screen.queryByTestId('pdf-toolbar')).not.toBeInTheDocument();
+  });
+
+  it('does not strand a zoom the user can no longer undo', async () => {
+    const { container } = render(RenderPdf, { mediaSrc: 'my_doc.pdf', displayName: 'my_doc.pdf' });
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+    const viewer = container.querySelector('.pdf-viewer-container')!;
+
+    resizeElement(viewer, 600, 800);
+    await tick();
+    await fireEvent.click(screen.getByTitle('Zoom In'));
+    expect(screen.getByText('125%')).toBeInTheDocument();
+
+    // The zoom controls disappear; the zoom they set must not stay behind.
+    resizeElement(viewer, 150, 400);
+    await tick();
+    resizeElement(viewer, 600, 800);
+    await tick();
+    expect(screen.getByText('100%')).toBeInTheDocument();
   });
 
   it('reports the first page size so the host can match the document shape', async () => {
@@ -306,6 +366,109 @@ describe('Integration inside RenderFile.svelte', () => {
 
     // Page count indicator verify
     expect(screen.getByText('/ 5')).toBeInTheDocument();
+  });
+
+  it('does not navigate when a control inside the card is clicked', async () => {
+    worldStore.loadFromData({
+      entities: [
+        {
+          id: 7,
+          components: [
+            {
+              componentType: 'renderFile',
+              settings: { targetPath: '/trove/document.pdf', scale: 1, position: { x: 0, y: 0 } },
+            },
+          ],
+        },
+      ],
+    });
+    focusEntity(null);
+
+    render(RenderFile, { entityId: 7, targetPath: '/trove/document.pdf', scale: 1, position: { x: 0, y: 0 } });
+    await waitFor(() => {
+      expect(screen.queryByText('Loading PDF...')).not.toBeInTheDocument();
+    });
+
+    // Paging the document is not a request to open the card.
+    await fireEvent.click(screen.getByTitle('Next Page'));
+
+    let focused: number | null = -1;
+    focusedEntityStore.subscribe((value) => {
+      focused = value;
+    })();
+    expect(focused).toBeNull();
+    expect(screen.getByDisplayValue('2')).toBeInTheDocument();
+  });
+
+  it('navigates when the card itself is clicked', async () => {
+    worldStore.loadFromData({
+      entities: [
+        {
+          id: 8,
+          components: [
+            {
+              componentType: 'renderFile',
+              settings: { targetPath: '/trove/photo.png', scale: 1, position: { x: 0, y: 0 } },
+            },
+          ],
+        },
+      ],
+    });
+    focusEntity(null);
+
+    const { container } = render(RenderFile, {
+      entityId: 8,
+      targetPath: '/trove/photo.png',
+      scale: 1,
+      position: { x: 0, y: 0 },
+    });
+
+    await fireEvent.click(container.querySelector('.render-file') as HTMLElement);
+
+    let focused: number | null = null;
+    focusedEntityStore.subscribe((value) => {
+      focused = value;
+    })();
+    expect(focused).toBe(8);
+  });
+
+  it('names the card after the entity, not after its whole path', () => {
+    worldStore.loadFromData({
+      entities: [
+        {
+          id: 9,
+          components: [
+            {
+              componentType: 'renderFile',
+              settings: { targetPath: '/trove/holiday/photo.png', scale: 1, position: { x: 0, y: 0 } },
+            },
+          ],
+        },
+        {
+          id: 10,
+          parentId: 9,
+          components: [
+            {
+              componentType: 'renderFile',
+              settings: { targetPath: '/trove/holiday/photo.png/note.txt', scale: 1, position: { x: 0, y: 0 } },
+            },
+          ],
+        },
+      ],
+    });
+
+    const { container } = render(RenderFile, {
+      entityId: 9,
+      targetPath: '/trove/holiday/photo.png',
+      scale: 1,
+      position: { x: 0, y: 0 },
+    });
+
+    const caption = container.querySelector('.caption-name') as HTMLElement;
+    expect(caption).toHaveTextContent('photo.png');
+    expect(caption).not.toHaveTextContent('/trove/');
+    // Any entity can hold other entities, so a card says what it is holding.
+    expect(container.querySelector('.caption-count')).toHaveTextContent('1');
   });
 
   it('gives a landscape PDF card the aspect ratio of its first page', async () => {

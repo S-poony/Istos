@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { editMode, worldStore, focusedEntityStore, focusEntity } from "../stores/world";
+  import {
+    editMode,
+    worldStore,
+    focusedEntityStore,
+    focusEntity,
+    getEntityDisplayName,
+  } from "../stores/world";
+  import { isInteractiveTarget, isActivationKey } from "../interaction";
   import RenderEntity from "./RenderEntity.svelte";
 
   interface Props {
@@ -15,41 +22,47 @@
   let parentId = $derived($worldStore.entities.get(entityId)?.parentId);
   let isRoot = $derived(parentId === undefined || parentId === null || $focusedEntityStore === entityId);
 
-  let entityName = $derived.by(() => {
-    // Try to get a display name from a renderFile component on this entity
-    const rf = $worldStore.getComponent(entityId, "renderFile");
-    const path = rf?.settings?.targetPath as string | undefined;
-    if (path) {
-      const parts = path.split(/[/\\]/);
-      return parts[parts.length - 1] || path;
-    }
-    // Fallback: try the first child's renderFile path
-    const children = $worldStore.getChildren(entityId);
-    for (const childId of children) {
-      const childRf = $worldStore.getComponent(childId, "renderFile");
-      const childPath = childRf?.settings?.targetPath as string | undefined;
-      if (childPath) {
-        const parts = childPath.split(/[/\\]/);
-        return parts[parts.length - 1] || childPath;
-      }
-    }
-    return `Entity #${entityId}`;
-  });
+  /// The container is named after itself, never after one of its children —
+  /// borrowing a child's name made a container claim to be a file it merely
+  /// held.
+  let entityName = $derived(getEntityDisplayName($worldStore, entityId));
 
   let children = $derived($worldStore.getOrderedChildren(entityId));
   let gridColumns = $derived(
     children.length > 0 && children.length < columns ? children.length : columns
   );
+
+  /// Same rule as a card: a click that belongs to something inside this
+  /// container is not a request to enter the container.
+  function handleActivate(event: MouseEvent) {
+    event.stopPropagation();
+    if (isInteractiveTarget(event)) return;
+    focusEntity(entityId);
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (!isActivationKey(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    focusEntity(entityId);
+  }
 </script>
 
 <div
   class="entity-wrapper"
   class:root={isRoot}
   class:draggable={draggable}
-  onclick={(e) => { e.stopPropagation(); focusEntity(entityId); }}
+  role="button"
+  tabindex="0"
+  aria-label={entityName}
+  onclick={handleActivate}
+  onkeydown={handleKeydown}
 >
   <div class="entity-header">
     <span class="entity-name">{entityName}</span>
+    {#if children.length > 0}
+      <span class="entity-count">{children.length}</span>
+    {/if}
   </div>
   <div
     class="grid-container"
@@ -84,26 +97,56 @@
     flex-shrink: 0;
   }
 
-  /* Nested entities fill their parent grid cell, preserving min-height for contents */
-  /* Nested entities stretch to fill their grid row (handled by grid align-items: stretch)
-     without forcing an ambiguous percentage height that collapses/overflows content. */
+  /* Nested entities stretch to fill their grid row (handled by grid
+     align-items: stretch) without forcing an ambiguous percentage height that
+     collapses/overflows content.
+
+     They also drop the card chrome. Every level of a full box adds its own
+     padding and bottom border, so a chain of nested containers ended in a
+     ladder of near-identical horizontal lines — one per level — stacked at the
+     bottom of the trove. Nesting is shown with a vertical rail instead: rails
+     run alongside the content and never accumulate into lines across it. */
   .entity-wrapper:not(.root) {
     height: auto;
     min-height: 0;
+    background-color: transparent;
+    border: none;
+    border-left: 2px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0 0 0 10px;
+    transition: border-color 0.2s;
   }
 
-  .entity-wrapper:hover {
+  .entity-wrapper.root:hover {
     border-color: rgba(124, 58, 237, 0.4);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .entity-wrapper:not(.root):hover {
+    border-left-color: var(--accent);
+  }
+
+  .entity-wrapper:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .entity-header {
     display: flex;
     align-items: center;
-    padding-bottom: 8px;
+    justify-content: space-between;
+    gap: 6px;
+    padding-bottom: 6px;
     margin-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     user-select: none;
+  }
+
+  /* Only the root's header earns a rule under it. Repeating it at every level
+     is what the nested rail replaces. */
+  .entity-wrapper.root .entity-header {
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
   .entity-name {
@@ -114,6 +157,23 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Nested names step back: they label the rail, they are not headings. */
+  .entity-wrapper:not(.root) .entity-name {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.8;
+  }
+
+  .entity-count {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    padding: 0 5px;
+    border-radius: 999px;
+    background-color: rgba(255, 255, 255, 0.07);
+    color: var(--text-secondary);
   }
 
   .entity-wrapper.draggable {
@@ -131,7 +191,7 @@
     gap: var(--grid-gap, 8px);
     width: 100%;
     flex: 1;
-    min-height: 80px; /* give it some height when empty */
+    min-height: 0;
     align-content: start;
     align-items: stretch;
     border-radius: 6px;
@@ -144,7 +204,10 @@
     background-color: rgba(124, 58, 237, 0.02);
   }
 
+  /* An empty container has to be big enough to be seen and dropped into; a
+     full one takes exactly the height its rows need. */
   .grid-container:empty {
+    min-height: 60px;
     border: 2px dashed var(--border);
     background-color: rgba(0, 0, 0, 0.05);
   }

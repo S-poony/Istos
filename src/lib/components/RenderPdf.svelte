@@ -32,6 +32,22 @@
 
   type FitMode = "page" | "width";
 
+  /// How much of the toolbar the container can afford.
+  ///
+  /// `full` — every control. `compact` — page navigation and the zoom level,
+  /// without reset or fit-mode. `minimal` — page navigation only. `none` — no
+  /// toolbar at all: below this size the toolbar would take more room than the
+  /// page it is meant to serve.
+  type ToolbarLevel = "full" | "compact" | "minimal" | "none";
+
+  /// Container widths, in CSS pixels, at which the next group of controls stops
+  /// fitting. Measured against the rendered control widths in `.pdf-toolbar`.
+  const TOOLBAR_FULL_WIDTH = 260;
+  const TOOLBAR_COMPACT_WIDTH = 186;
+  const TOOLBAR_MIN_WIDTH = 116;
+  /// Below this height the toolbar would leave no usable room for the page.
+  const TOOLBAR_MIN_HEIGHT = 120;
+
   let doc = $state.raw<any>(null);
   let numPages = $state(0);
   let pageNum = $state(1);
@@ -49,10 +65,35 @@
 
   let canvasElement = $state<HTMLCanvasElement | null>(null);
   let scrollElement = $state<HTMLDivElement | null>(null);
+  let containerElement = $state<HTMLDivElement | null>(null);
   let box = $state({ width: 0, height: 0 });
   /// Non-reactive mirror of `box`, used to drop duplicate resize notifications
   /// without making the measuring effect depend on its own output.
   let measured = { width: -1, height: -1 };
+  /// Size of the whole viewer, which is what decides how much toolbar fits.
+  /// `null` until something has actually measured it: an unmeasured viewer
+  /// shows the full toolbar rather than guessing that it has no room.
+  let viewerBox = $state<{ width: number; height: number } | null>(null);
+  let viewerMeasured = { width: -1, height: -1 };
+
+  /// Reports an element's content box now and on every later resize.
+  /// `clientWidth`/`clientHeight` are read up front because a ResizeObserver is
+  /// not guaranteed to deliver its first entry before the next render.
+  function trackSize(
+    element: HTMLElement,
+    apply: (width: number, height: number) => void
+  ): (() => void) | undefined {
+    apply(element.clientWidth, element.clientHeight);
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        apply(entry.contentRect.width, entry.contentRect.height);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }
 
   let loadTask: any = null;
   let renderTask: any = null;
@@ -101,6 +142,29 @@
 
   let scale = $derived(fitScale * zoomFactor);
 
+  /// A control the container has no room for is removed, not shrunk further:
+  /// a button too small to read or hit is worse than no button. Groups drop
+  /// from least to most essential, so page navigation is the last thing to go.
+  let toolbarLevel = $derived.by<ToolbarLevel>(() => {
+    if (!viewerBox) return "full";
+    if (viewerBox.height < TOOLBAR_MIN_HEIGHT || viewerBox.width < TOOLBAR_MIN_WIDTH) {
+      return "none";
+    }
+    if (viewerBox.width < TOOLBAR_COMPACT_WIDTH) return "minimal";
+    if (viewerBox.width < TOOLBAR_FULL_WIDTH) return "compact";
+    return "full";
+  });
+
+  let showToolbar = $derived(toolbarLevel !== "none");
+  let showZoom = $derived(toolbarLevel === "full" || toolbarLevel === "compact");
+  let showZoomExtras = $derived(toolbarLevel === "full");
+
+  /// Zoom can only be changed from controls that are now gone, so leaving a
+  /// stale zoom behind would trap the page at a scale the user cannot undo.
+  $effect(() => {
+    if (!showZoom && zoomFactor !== 1) zoomFactor = 1;
+  });
+
   // Keep page input in sync with current page number
   $effect(() => {
     pageInputVal = String(pageNum);
@@ -125,29 +189,34 @@
     };
   });
 
+  // Measure the whole viewer, which decides how much toolbar fits. The toolbar
+  // sits inside this box but does not change it, so hiding a control can never
+  // feed back into the measurement and oscillate.
+  $effect(() => {
+    const element = containerElement;
+    if (!element) return;
+
+    return trackSize(element, (width, height) => {
+      // A zero-sized report means "not laid out yet", not "no room". Acting on
+      // it would hide the toolbar for one frame on every mount.
+      if (width <= 0 || height <= 0) return;
+      if (width === viewerMeasured.width && height === viewerMeasured.height) return;
+      viewerMeasured = { width, height };
+      viewerBox = { width, height };
+    });
+  });
+
   // Measure the scroll viewport. Declared before the render effect so that the
   // very first render of a newly mounted canvas already sees real dimensions.
-  // clientWidth/Height is read up front because a ResizeObserver is not
-  // guaranteed to deliver its first entry before that render.
   $effect(() => {
     const element = scrollElement;
     if (!element) return;
 
-    const apply = (width: number, height: number) => {
+    return trackSize(element, (width, height) => {
       if (width === measured.width && height === measured.height) return;
       measured = { width, height };
       box = { width, height };
-    };
-    apply(element.clientWidth, element.clientHeight);
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        apply(entry.contentRect.width, entry.contentRect.height);
-      }
     });
-    observer.observe(element);
-    return () => observer.disconnect();
   });
 
   // Fetch metadata for the current page. Runs once per page, independently of
@@ -335,7 +404,7 @@
   }
 </script>
 
-<div class="pdf-viewer-container">
+<div class="pdf-viewer-container" bind:this={containerElement}>
   <div class="pdf-viewport">
     {#if loading}
       <div class="loading-state">
@@ -362,8 +431,10 @@
     {/if}
   </div>
 
-  {#if !loading && !error && numPages > 0}
-    <div class="pdf-toolbar">
+  {#if !loading && !error && numPages > 0 && showToolbar}
+    <!-- data-interactive: the toolbar and its padding belong to the viewer, so
+         a click anywhere in it must not also navigate into the host card. -->
+    <div class="pdf-toolbar" data-interactive data-testid="pdf-toolbar">
       <div class="toolbar-section navigation">
         <button
           onclick={handlePrevPage}
@@ -393,42 +464,46 @@
         </button>
       </div>
 
-      <div class="toolbar-divider"></div>
+      {#if showZoom}
+        <div class="toolbar-divider"></div>
 
-      <div class="toolbar-section zoom">
-        <button
-          onclick={handleZoomOut}
-          disabled={zoomFactor <= MIN_ZOOM}
-          title="Zoom Out"
-          class="toolbar-btn"
-        >
-          －
-        </button>
-        <span class="zoom-level">{Math.round(zoomFactor * 100)}%</span>
-        <button
-          onclick={handleZoomIn}
-          disabled={zoomFactor >= MAX_ZOOM}
-          title="Zoom In"
-          class="toolbar-btn"
-        >
-          ＋
-        </button>
-        <button
-          onclick={handleZoomReset}
-          disabled={zoomFactor === 1}
-          title="Reset Zoom"
-          class="toolbar-btn reset-btn"
-        >
-          ↺
-        </button>
-        <button
-          onclick={toggleFitMode}
-          title={fitMode === "page" ? "Fit Width" : "Fit Page"}
-          class="toolbar-btn fit-btn"
-        >
-          {fitMode === "page" ? "↔" : "⤢"}
-        </button>
-      </div>
+        <div class="toolbar-section zoom">
+          <button
+            onclick={handleZoomOut}
+            disabled={zoomFactor <= MIN_ZOOM}
+            title="Zoom Out"
+            class="toolbar-btn"
+          >
+            －
+          </button>
+          <span class="zoom-level">{Math.round(zoomFactor * 100)}%</span>
+          <button
+            onclick={handleZoomIn}
+            disabled={zoomFactor >= MAX_ZOOM}
+            title="Zoom In"
+            class="toolbar-btn"
+          >
+            ＋
+          </button>
+          {#if showZoomExtras}
+            <button
+              onclick={handleZoomReset}
+              disabled={zoomFactor === 1}
+              title="Reset Zoom"
+              class="toolbar-btn reset-btn"
+            >
+              ↺
+            </button>
+            <button
+              onclick={toggleFitMode}
+              title={fitMode === "page" ? "Fit Width" : "Fit Page"}
+              class="toolbar-btn fit-btn"
+            >
+              {fitMode === "page" ? "↔" : "⤢"}
+            </button>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -543,8 +618,8 @@
     }
   }
 
-  /* The toolbar wraps instead of hiding controls: every action stays reachable
-     no matter how narrow the container gets. */
+  /* Controls shrink first (the container queries below) and are dropped only
+     once shrinking would make them unreadable — see `toolbarLevel`. */
   .pdf-toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -639,7 +714,8 @@
     color: var(--text-secondary);
   }
 
-  /* Container query responsive toolbar: controls shrink, they never disappear. */
+  /* Container query responsive toolbar: the controls that are still on screen
+     shrink to fit before any of them is dropped. */
   @container (max-width: 350px) {
     .pdf-toolbar {
       gap: 6px 8px;

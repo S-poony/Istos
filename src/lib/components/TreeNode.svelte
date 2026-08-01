@@ -11,7 +11,7 @@
             entityId: EntityId;
             position: "before" | "after";
         } | null;
-        isFolder: (id: EntityId) => boolean;
+        isContainer: (id: EntityId) => boolean;
         onDragStart: (e: DragEvent, id: EntityId) => void;
         onDragOver: (e: DragEvent, id: EntityId) => void;
         onDragLeave: (e: DragEvent) => void;
@@ -30,7 +30,7 @@
         id,
         draggedId,
         dropTarget,
-        isFolder,
+        isContainer,
         onDragStart,
         onDragOver,
         onDragLeave,
@@ -60,8 +60,9 @@
         return $worldStore.getComponents(id).map((c) => c.componentType);
     });
 
-    /// Is this a directory/folder?
-    let folder = $derived(isFolder(id));
+    /// Can this entity hold others? Any entity can, so this says nothing about
+    /// what kind of thing it is — only that it is worth offering a toggle for.
+    let canContain = $derived(isContainer(id));
 
     /// Is the item expandable?
     let hasChildren = $derived.by(() => {
@@ -85,17 +86,20 @@
             )
         )
             return "📝";
-        // Folders
-        if (folder) return "📁";
-        return "📄";
+        // Nothing above matched, so nothing is known about how this entity
+        // renders. It gets a neutral mark: an entity that holds others is not
+        // a different kind of thing, so it must not get a different icon.
+        return "◻";
     });
 
     /// Pre-compute ordered children for the each block
     let orderedChildren = $derived($worldStore.getOrderedChildren(id));
 
-    function toggleExpand(e: MouseEvent) {
+    // Reached from both a click and a keydown, so it is typed for what it
+    // actually uses rather than for one of its two callers.
+    function toggleExpand(e: Event) {
         e.stopPropagation();
-        if (hasChildren || folder) {
+        if (hasChildren || canContain) {
             expanded = !expanded;
         }
     }
@@ -158,7 +162,7 @@
             role="button"
             tabindex="0"
         >
-            {#if folder || hasChildren}
+            {#if canContain || hasChildren}
                 {expanded ? "▾" : "▸"}
             {:else}
                 <span class="toggle-spacer"></span>
@@ -179,7 +183,7 @@
         {/if}
     </div>
 
-    {#if expanded && (folder || orderedChildren.length > 0)}
+    {#if expanded && (canContain || orderedChildren.length > 0)}
         <div
             class="children"
             role="group"
@@ -216,7 +220,7 @@
                     id={childId}
                     {draggedId}
                     {dropTarget}
-                    {isFolder}
+                    {isContainer}
                     {isAncestor}
                     {onDragStart}
                     {onDragOver}

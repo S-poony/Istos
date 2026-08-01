@@ -38,11 +38,48 @@ if (typeof HTMLCanvasElement !== 'undefined') {
   };
 }
 
-// Mock ResizeObserver for jsdom
+// Mock ResizeObserver for jsdom.
+//
+// JSDOM does no layout, so components that size themselves from a measured box
+// would otherwise be stuck at 0x0 and untestable. This mock keeps every live
+// observer so a test can state what size an element has and see the component
+// react — see `resizeElement` below.
+type ResizeCallback = (entries: { contentRect: { width: number; height: number } }[]) => void;
+
+const observers = new Set<{ callback: ResizeCallback; targets: Set<Element> }>();
+
 class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  private record: { callback: ResizeCallback; targets: Set<Element> };
+
+  constructor(callback: ResizeCallback) {
+    this.record = { callback, targets: new Set() };
+    observers.add(this.record);
+  }
+
+  observe(target: Element) {
+    this.record.targets.add(target);
+  }
+
+  unobserve(target: Element) {
+    this.record.targets.delete(target);
+  }
+
+  disconnect() {
+    this.record.targets.clear();
+    observers.delete(this.record);
+  }
 }
 
 globalThis.ResizeObserver = ResizeObserverMock as any;
+
+/// Give an element a size and notify anything observing it.
+export function resizeElement(element: Element, width: number, height: number): void {
+  Object.defineProperty(element, 'clientWidth', { value: width, configurable: true });
+  Object.defineProperty(element, 'clientHeight', { value: height, configurable: true });
+
+  for (const observer of observers) {
+    if (observer.targets.has(element)) {
+      observer.callback([{ contentRect: { width, height } }]);
+    }
+  }
+}

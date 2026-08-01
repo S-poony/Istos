@@ -41,6 +41,12 @@ the central idea and it constrains a lot of the UI: **no folder-specific icons,
 names, or assumptions**. Containers are `.entity-wrapper`, labelled with the
 parent's filename or `Entity #ID` — never "folder".
 
+The predicate is `isContainer` — "does this entity have a `grid`", not "is this
+a folder". Icons follow the same rule: they may describe how an entity
+*renders* (audio, video, image, text), never whether it holds children. An
+entity with children gets the same neutral mark as one without; the toggle
+arrow already says there is something inside.
+
 ### The ECS ↔ filesystem contract
 
 Structural changes are mirrored to disk wherever they can be. Moving image A —
@@ -180,6 +186,14 @@ Root wrappers take only the space they need and never shrink
 `height: auto; min-height: 0` and let the grid row size them — percentage heights
 here produce tall empty boxes that overflow.
 
+**Only the root wrapper draws a card; nested wrappers draw a rail.** A full box
+at every level adds its own padding and bottom border, so a chain of nested
+containers ended in a ladder of near-identical horizontal lines — one per level —
+stacked at the bottom of the trove. Nested wrappers instead use a 2px
+`border-left` and left padding: rails run alongside content and never accumulate
+into lines across it. The header's rule under the name is likewise root-only, and
+nested names step down in size and weight.
+
 ### Card aspect ratios
 
 A card's shape comes from its content's real dimensions when those are known,
@@ -192,14 +206,52 @@ and from an orientation default otherwise.
   is landscape and should look like one.
 - Defaults when nothing has been measured: portrait `3 / 4`
   (`min-height: 180px`, `max-height: 400px`), landscape `16 / 9`
-  (`min-height: 120px`), audio `min-height: 54px`, unclassified `120px`.
+  (`min-height: 120px`), audio `min-height: 82px`, unclassified `120px`.
+
+These minimums cover the caption as well as the content. Sizing a card to its
+player or page alone leaves the caption to squeeze it.
+
+### Cards, names and clicks
+
+Everything the desktop draws for a single entity is a **card** (`.render-file`):
+content on top, a caption underneath. There is no second kind of card.
+
+The caption is how an entity says its name. It is one line, secondary colour,
+truncated — present on every card, never competing with the content — and it
+carries a count when the entity holds other entities. Below `84px` of card width
+it disappears, because an ellipsis costs more than it tells. The name is the
+entity's own (`getEntityDisplayName`): the last path segment, and `Entity #ID`
+when there is no path. **A container is never named after one of its children** —
+borrowing a child's name made a container claim to be a file it merely held.
+
+Placeholders show a neutral mark and the file's extension. No icon may imply
+"folder" or "file": any entity can contain any other, so the distinction the
+icon would be drawing does not exist.
+
+**A click belongs to the innermost thing that handles it.** Cards and containers
+are clickable — clicking one focuses that entity — and they also contain real
+controls. `isInteractiveTarget` (`src/lib/interaction.ts`) walks from the event
+target up to the handler's own element and reports whether the click landed on a
+control; the handler then focuses only if it did not. Two rules make this safe:
+
+- The walk **stops at `currentTarget`**. Matching against the whole document
+  would make a nested card mistake an ancestor for one of its own controls.
+- The handler calls `stopPropagation()` **either way**. Returning early without
+  it lets the click bubble to the ancestor card, which focuses the wrong entity —
+  the exact bug, moved up one level.
+
+A subtree that is interactive without being a form control marks itself
+`data-interactive`.
 
 ### Depth and navigation
 
-Inline nesting stops at `MAX_DEPTH` (`src/lib/constants.ts`). At the limit,
-`RenderDeepEntity` draws a compact summary card — name, component badges, child
-count, and a button to open that entity as the desktop root — instead of another
-recursive grid nobody can read.
+Inline nesting stops at `MAX_DEPTH` (`src/lib/constants.ts`). At the limit an
+entity is **not** replaced by a different kind of thing: its `grid` simply stops
+applying, and what remains is its `renderFile` — the same card the desktop draws
+for it anywhere else, marked `.collapsed` and captioned with its child count.
+Entering it is what shows its children. A bespoke "deep entity" widget was tried
+and removed: it duplicated card chrome, drifted from the app's styling, and gave
+one class of entity a shape no component asked for.
 
 Focusing an entity sets `focusedEntityStore`; a breadcrumb bar renders the
 ancestor chain back to the trove root. Opening a new trove clears the focus,
@@ -248,10 +300,22 @@ resized, since resizing clears it.
 **Sharpness.** The canvas backing store is `viewport × devicePixelRatio` with a
 matching render transform, while the CSS box stays at the logical size.
 
-**Controls stay reachable at any size.** The toolbar wraps and its controls
-shrink; nothing is hidden at narrow breakpoints. The container has no
-`min-height` — the host grid cell owns sizing, and a `min-height` here pushed the
-toolbar out of small cells.
+**Controls shrink before they are dropped, and are dropped before they are
+crushed.** The toolbar wraps and its controls shrink through container queries.
+Past that, a measured `toolbarLevel` removes whole groups from the DOM, least
+essential first: fit-mode and reset go, then the entire zoom section, then the
+toolbar itself. Page navigation survives longest. A button too small to read or
+hit is worse than no button — and in a thumbnail-sized cell a toolbar takes more
+room than the page it serves.
+
+Two things keep that honest. A **zero-sized measurement means "not laid out
+yet", not "no room"**, so the toolbar is never hidden for a frame on mount. And
+when the zoom controls disappear, **`zoomFactor` resets to 1** — zoom can only be
+changed from controls that are now gone, so leaving it set would strand the page
+at a scale the user cannot undo.
+
+The container has no `min-height` — the host grid cell owns sizing, and a
+`min-height` here pushed the toolbar out of small cells.
 
 **Scrolling reaches both edges.** The scroll container is a flex box and the
 canvas wrapper uses `margin: auto`. Centring with `justify-content` makes the
@@ -262,10 +326,17 @@ container.
 
 ## 7. Testing
 
-Frontend tests run under JSDOM with Vitest. Backend logic is tested through pure
-functions (`open_trove_impl`, `move_entity_impl`) rather than Tauri commands,
-which cannot be constructed with a `State` wrapper in a unit test.
+Frontend tests run under JSDOM with Vitest, on `pool: 'forks'`. **Do not set
+`pool: 'vmForks'`** — it hangs the suite indefinitely with no output.
 
-Environment-level traps — the `vmForks` pool hanging, `vi.mock` hoisting,
-PDF.js needing `DOMMatrix`, JSDOM lacking `DragEvent` — are recorded in
-[docs/LEARNINGS.md](docs/LEARNINGS.md).
+Backend logic is tested through pure functions (`open_trove_impl`,
+`move_entity_impl`) rather than Tauri commands, which cannot be constructed with
+a `State` wrapper in a unit test.
+
+JSDOM does no layout, so anything that sizes itself from a measured box would be
+stuck at 0×0 and untestable. `src/__tests__/setup.ts` exports `resizeElement`,
+which sets an element's client size and notifies the mock `ResizeObserver`; a
+test states a size and asserts what the component does with it.
+
+Environment-level traps — `vi.mock` hoisting, PDF.js needing `DOMMatrix`, JSDOM
+lacking `DragEvent` — are recorded in [docs/LEARNINGS.md](docs/LEARNINGS.md).
